@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      The real theming is in Compose (ui/theme/Theme.kt). This exists so the
+      launch window matches the app background instead of flashing white, which
+      is jarring at dawn on a dark screen.
+    -->
+    <style name="Theme.FishMate" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/launch_background</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+</resources>

@@ -1,0 +1,52 @@
+name: Security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Weekly, so a newly-disclosed advisory in a pinned dependency surfaces
+    # without waiting for the next commit.
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+jobs:
+  secrets:
+    name: No committed secrets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Audit for secret patterns
+        run: make secrets-audit
+
+      - name: Scan history for key patterns
+        run: |
+          # Google API keys have a recognisable shape; fail loudly if one was
+          # ever committed, since rotation is the only fix after the fact.
+          if git log -p --all | grep -nE 'AIza[0-9A-Za-z_-]{35}'; then
+            echo "::error::A Google API key pattern appears in git history"
+            exit 1
+          fi
+          echo "No API key patterns in history."
+
+  dependencies:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Audit Python dependencies
+        working-directory: backend
+        run: |
+          uv venv .venv
+          uv pip install --python .venv/bin/python -e "." pip-audit
+          # Non-blocking: an advisory in a transitive dependency should be
+          # visible without stopping unrelated work.
+          .venv/bin/pip-audit --desc || echo "::warning::pip-audit reported findings"

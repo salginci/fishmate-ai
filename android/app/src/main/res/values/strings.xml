@@ -1,0 +1,152 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">FishMate</string>
+
+    <!-- Navigation -->
+    <string name="nav_home">Home</string>
+    <string name="nav_tackle">Tackle</string>
+    <string name="nav_sessions">Sessions</string>
+    <string name="nav_catches">Catch log</string>
+    <string name="nav_settings">Settings</string>
+
+    <!-- Onboarding -->
+    <string name="onboarding_title">Your AI fishing partner</string>
+    <string name="onboarding_subtitle">Talk to it while you fish. Show it your lure. It remembers your sessions.</string>
+    <string name="onboarding_voice_title">Hands-free voice</string>
+    <string name="onboarding_voice_body">Put the phone away and wear earbuds. Ask anything out loud — no buttons.</string>
+    <string name="onboarding_camera_title">It can see</string>
+    <string name="onboarding_camera_body">Point the camera at a lure, a fish or the water and ask what to do.</string>
+    <string name="onboarding_memory_title">It remembers</string>
+    <string name="onboarding_memory_body">Log your catches and ask later what actually worked.</string>
+    <string name="onboarding_continue">Continue</string>
+    <string name="onboarding_get_started">Get started</string>
+
+    <!-- Auth -->
+    <string name="auth_sign_in">Sign in</string>
+    <string name="auth_create_account">Create account</string>
+    <string name="auth_email">Email</string>
+    <string name="auth_password">Password</string>
+    <string name="auth_display_name">Your name</string>
+    <string name="auth_have_account">I already have an account</string>
+    <string name="auth_need_account">I need an account</string>
+
+    <!-- Home -->
+    <!-- One call to action for both a fresh start and a running session: the
+         difference is already carried by the avatar's wave and by the
+         "session running" card directly beneath it. -->
+    <string name="powered_by_gemini">Powered by Gemini</string>
+    <string name="home_lets_fish">Let\'s fish</string>
+    <string name="home_conditions">Today\'s conditions</string>
+    <string name="home_recent_catches">Recent catches</string>
+    <string name="home_my_tackle">My tackle</string>
+    <string name="home_no_catches">No catches logged yet.</string>
+    <string name="home_active_session">Session running</string>
+
+    <!-- Fishing mode -->
+    <string name="fishing_ready">AI ready</string>
+    <string name="fishing_ask_anything">Ask me anything.</string>
+    <string name="fishing_status_connecting">Connecting…</string>
+    <string name="fishing_status_reconnecting">Reconnecting…</string>
+    <string name="fishing_status_listening">Listening</string>
+    <string name="fishing_status_thinking">Thinking…</string>
+    <string name="fishing_status_speaking">Speaking</string>
+    <string name="fishing_status_watching">Watching</string>
+    <string name="fishing_status_tool">Checking…</string>
+    <!-- Spoken by a screen reader in place of the animated avatar. -->
+    <string name="fishing_avatar_listening">FishMate is listening</string>
+    <string name="fishing_avatar_speaking">FishMate is speaking</string>
+    <string name="fishing_avatar_muted">Microphone muted</string>
+    <string name="fishing_status_muted">Muted</string>
+    <string name="fishing_status_idle">Idle</string>
+    <string name="fishing_status_error">Problem</string>
+    <!-- Control-bar labels are nouns: the icon and the fill say whether the
+         thing is on, so the label only has to say what the thing is. -->
+    <string name="fishing_handsfree">Hands-free audio</string>
+    <string name="fishing_route_speaker">Speaker</string>
+    <string name="fishing_route_bluetooth">Bluetooth</string>
+    <string name="fishing_route_headset">Headset</string>
+    <string name="fishing_handsfree_off">Earpiece</string>
+    <string name="fishing_tap_to_interrupt">Tap the assistant to stop it talking</string>
+    <string name="fishing_subtitles">Subtitles</string>
+    <string name="fishing_mic">Mic</string>
+    <string name="fishing_camera">Camera</string>
+    <!-- Spoken by TalkBack as the control's state, not shown on screen. -->
+    <string name="fishing_on">On</string>
+    <string name="fishing_off">Off</string>
+    <string name="fishing_switch_camera">Switch camera</string>
+    <string name="fishing_end">End</string>
+    <string name="fishing_look_at_this">Look at this</string>
+    <string name="fishing_vision_description">The latest camera frame sent to the assistant</string>
+    <string name="fishing_vision_paused">Paused while speaking</string>
+
+    <!-- Permissions -->
+    <string name="perm_mic_title">Microphone needed</string>
+    <string name="perm_mic_body">Microphone access is required for Fishing Mode.</string>
+    <string name="perm_camera_title">Camera is optional</string>
+    <string name="perm_camera_body">Camera access lets me analyze your lure, fish, and surroundings.</string>
+    <string name="perm_location_title">Location is optional</string>
+    <string name="perm_location_body">With your location I can use real wind, wave and sunrise data instead of guessing.</string>
+    <string name="perm_grant">Grant access</string>
+    <string name="perm_skip">Not now</string>
+
+    <!-- Tackle -->
+    <string name="tackle_empty_title">Your tackle box is empty</string>
+    <string name="tackle_empty_body">Add what you actually carry. The assistant only recommends gear you own.</string>
+    <string name="tackle_add">Add item</string>
+    <string name="tackle_use_templates">Add a starter set</string>
+    <string name="tackle_needs_confirmation">Confirm this</string>
+
+    <!-- Catches -->
+    <string name="catch_ai_disclaimer">AI identification may be incorrect. You can change the species.</string>
+    <string name="catch_confirm_species">That\'s correct</string>
+    <string name="catch_change_species">Change species</string>
+    <string name="catch_length">Length (cm)</string>
+    <string name="catch_weight">Weight (g)</string>
+    <string name="catch_lure">Lure</string>
+    <string name="catch_released">Released</string>
+    <string name="catch_empty">No catches yet.</string>
+
+    <!-- Sessions -->
+    <string name="session_empty">No sessions yet. Start fishing and the assistant will keep the log.</string>
+    <string name="session_finish">Finish session</string>
+    <string name="session_report">Session report</string>
+    <string name="session_catches">Catches</string>
+    <string name="session_duration">Duration</string>
+
+    <!-- Settings -->
+    <string name="settings_language">Language</string>
+    <string name="settings_location">Location sharing</string>
+    <string name="settings_location_precise">Precise</string>
+    <string name="settings_location_approximate">Approximate (~1 km)</string>
+    <string name="settings_location_none">Don\'t share</string>
+    <string name="settings_voice">Assistant voice</string>
+    <string name="settings_voice_body">Which voice FishMate speaks with. Takes effect the next time you start Fishing Mode.</string>
+    <string name="settings_voice_default">Default</string>
+    <string name="settings_camera_rate">Camera frame rate</string>
+    <string name="settings_camera_rate_body">Lower uses less data and battery.</string>
+    <string name="settings_privacy">Privacy</string>
+    <string name="settings_about">About</string>
+    <string name="settings_delete_account">Delete my account and data</string>
+    <string name="settings_sign_out">Sign out</string>
+    <string name="settings_demo">Demo mode</string>
+
+    <!-- Errors / offline -->
+    <string name="error_offline">You\'re offline. Your data is saved on this device.</string>
+    <string name="error_gemini_unreachable">I can\'t reach Gemini right now. Check your connection and try again.</string>
+    <string name="error_retry">Try again</string>
+
+    <!-- Service -->
+    <string name="service_channel_name">Fishing Mode</string>
+    <string name="service_channel_description">Keeps the assistant listening while the screen is off.</string>
+    <string name="service_notification_title">FishMate is listening</string>
+    <string name="service_notification_body">Tap to return to Fishing Mode.</string>
+    <string name="service_stop">Stop</string>
+    <plurals name="pending_writes">
+        <item quantity="one">%1$d change waiting to sync</item>
+        <item quantity="other">%1$d changes waiting to sync</item>
+    </plurals>
+    <plurals name="fishing_vision_sent">
+        <item quantity="one">Seeing this · %1$d frame</item>
+        <item quantity="other">Seeing this · %1$d frames</item>
+    </plurals>
+</resources>

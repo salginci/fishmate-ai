@@ -1,0 +1,50 @@
+# Local development stack. Production runs the same image on Cloud Run with
+# Cloud SQL (see ../docs/DEPLOYMENT.md).
+name: fishmate
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: fishmate
+      POSTGRES_PASSWORD: fishmate
+      POSTGRES_DB: fishmate
+    ports:
+      # Host port is configurable because 5432 is very often already taken by
+      # a local Postgres or another project's container. Container-internal
+      # networking always uses 5432.
+      - "${DB_HOST_PORT:-55432}:5432"
+    volumes:
+      - fishmate_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # The API waits for this before migrating.
+      test: ["CMD-SHELL", "pg_isready -U fishmate -d fishmate"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build:
+      context: .
+    depends_on:
+      db:
+        condition: service_healthy
+    # Secrets come from the repo-root .env, which is gitignored. Using
+    # env_file rather than ${VAR} interpolation keeps them out of the shell
+    # environment and out of `docker compose config` output.
+    env_file:
+      - ../.env
+    environment:
+      # Overrides .env: inside the network the database is `db`, not localhost.
+      DATABASE_URL: postgresql+asyncpg://fishmate:fishmate@db:5432/fishmate
+      ENVIRONMENT: development
+      PORT: 8080
+    ports:
+      - "${API_HOST_PORT:-8099}:8080"
+    # Migrate then serve, so a fresh volume comes up usable.
+    command: >
+      sh -c "alembic upgrade head &&
+             exec uvicorn app.main:app --host 0.0.0.0 --port 8080 --proxy-headers"
+
+volumes:
+  fishmate_pgdata:

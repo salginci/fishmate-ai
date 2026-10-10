@@ -1,0 +1,138 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">FishMate</string>
+
+    <string name="nav_home">Ana sayfa</string>
+    <string name="nav_tackle">Takım</string>
+    <string name="nav_sessions">Oturumlar</string>
+    <string name="nav_catches">Av kaydı</string>
+    <string name="nav_settings">Ayarlar</string>
+
+    <string name="onboarding_title">Yapay zekâ av arkadaşın</string>
+    <string name="onboarding_subtitle">Avlanırken konuş. Sahteyi göster. Oturumlarını hatırlar.</string>
+    <string name="onboarding_voice_title">Eller serbest</string>
+    <string name="onboarding_voice_body">Telefonu cebine koy, kulaklığı tak. Sesli sor — tuşa basmak yok.</string>
+    <string name="onboarding_camera_title">Görebiliyor</string>
+    <string name="onboarding_camera_body">Kamerayı sahteye, balığa veya suya tut ve ne yapacağını sor.</string>
+    <string name="onboarding_memory_title">Hatırlıyor</string>
+    <string name="onboarding_memory_body">Avlarını kaydet, sonra neyin işe yaradığını sor.</string>
+    <string name="onboarding_continue">Devam</string>
+    <string name="onboarding_get_started">Başla</string>
+
+    <string name="auth_sign_in">Giriş yap</string>
+    <string name="auth_create_account">Hesap oluştur</string>
+    <string name="auth_email">E-posta</string>
+    <string name="auth_password">Şifre</string>
+    <string name="auth_display_name">Adın</string>
+    <string name="auth_have_account">Hesabım var</string>
+    <string name="auth_need_account">Hesap oluşturmak istiyorum</string>
+
+    <string name="powered_by_gemini">Gemini ile çalışır</string>
+    <string name="home_lets_fish">Hadi balığa</string>
+    <string name="home_conditions">Bugünün koşulları</string>
+    <string name="home_recent_catches">Son avlar</string>
+    <string name="home_my_tackle">Takımım</string>
+    <string name="home_no_catches">Henüz av kaydı yok.</string>
+    <string name="home_active_session">Oturum sürüyor</string>
+
+    <string name="fishing_ready">Hazırım</string>
+    <string name="fishing_ask_anything">Ne istersen sor.</string>
+    <string name="fishing_status_connecting">Bağlanıyor…</string>
+    <string name="fishing_status_reconnecting">Yeniden bağlanıyor…</string>
+    <string name="fishing_status_listening">Dinliyorum</string>
+    <string name="fishing_status_thinking">Düşünüyorum…</string>
+    <string name="fishing_status_speaking">Konuşuyorum</string>
+    <string name="fishing_status_watching">İzliyorum</string>
+    <string name="fishing_status_tool">Bakıyorum…</string>
+    <!-- Animasyonlu avatar yerine ekran okuyucunun söyledikleri. -->
+    <string name="fishing_avatar_listening">FishMate dinliyor</string>
+    <string name="fishing_avatar_speaking">FishMate konuşuyor</string>
+    <string name="fishing_avatar_muted">Mikrofon kapalı</string>
+    <string name="fishing_status_muted">Susturuldu</string>
+    <string name="fishing_status_idle">Bekliyor</string>
+    <string name="fishing_status_error">Sorun var</string>
+    <string name="fishing_handsfree">Eller serbest ses</string>
+    <string name="fishing_route_speaker">Hoparlör</string>
+    <string name="fishing_route_bluetooth">Bluetooth</string>
+    <string name="fishing_route_headset">Kulaklık</string>
+    <string name="fishing_handsfree_off">Ahize</string>
+    <string name="fishing_tap_to_interrupt">Konuşmasını kesmek için asistana dokun</string>
+    <string name="fishing_subtitles">Altyazı</string>
+    <string name="fishing_mic">Mikrofon</string>
+    <string name="fishing_camera">Kamera</string>
+    <!-- Ekranda görünmez; ekran okuyucu kontrolün durumu olarak söyler. -->
+    <string name="fishing_on">Açık</string>
+    <string name="fishing_off">Kapalı</string>
+    <string name="fishing_switch_camera">Kamerayı çevir</string>
+    <string name="fishing_end">Bitir</string>
+    <string name="fishing_look_at_this">Şuna bak</string>
+    <string name="fishing_vision_description">Asistana gönderilen son kamera karesi</string>
+    <string name="fishing_vision_paused">Konuşurken duraklatıldı</string>
+
+    <string name="perm_mic_title">Mikrofon gerekli</string>
+    <string name="perm_mic_body">Av modu için mikrofon erişimi gerekiyor.</string>
+    <string name="perm_camera_title">Kamera isteğe bağlı</string>
+    <string name="perm_camera_body">Kamera ile sahteni, balığı ve çevreyi inceleyebilirim.</string>
+    <string name="perm_location_title">Konum isteğe bağlı</string>
+    <string name="perm_location_body">Konumunla gerçek rüzgâr, dalga ve gün batımı verisini kullanabilirim.</string>
+    <string name="perm_grant">İzin ver</string>
+    <string name="perm_skip">Şimdi değil</string>
+
+    <string name="tackle_empty_title">Takım çantan boş</string>
+    <string name="tackle_empty_body">Yanında gerçekten ne varsa ekle. Sadece sahip olduğun takımı öneririm.</string>
+    <string name="tackle_add">Ekle</string>
+    <string name="tackle_use_templates">Hazır set ekle</string>
+    <string name="tackle_needs_confirmation">Bunu onayla</string>
+
+    <string name="catch_ai_disclaimer">Yapay zekâ teşhisi yanlış olabilir. Türü değiştirebilirsin.</string>
+    <string name="catch_confirm_species">Doğru</string>
+    <string name="catch_change_species">Türü değiştir</string>
+    <string name="catch_length">Boy (cm)</string>
+    <string name="catch_weight">Ağırlık (g)</string>
+    <string name="catch_lure">Sahte</string>
+    <string name="catch_released">Bırakıldı</string>
+    <string name="catch_empty">Henüz av yok.</string>
+
+    <string name="session_empty">Henüz oturum yok. Avı başlat, kaydı ben tutarım.</string>
+    <string name="session_finish">Oturumu bitir</string>
+    <string name="session_report">Oturum raporu</string>
+    <string name="session_catches">Av</string>
+    <string name="session_duration">Süre</string>
+
+    <string name="settings_language">Dil</string>
+    <string name="settings_location">Konum paylaşımı</string>
+    <string name="settings_location_precise">Hassas</string>
+    <string name="settings_location_approximate">Yaklaşık (~1 km)</string>
+    <string name="settings_location_none">Paylaşma</string>
+    <string name="settings_voice">Asistan sesi</string>
+    <string name="settings_voice_body">FishMate\'in hangi sesle konuşacağı. Av Modu\'nu bir sonraki başlatışınızda geçerli olur.</string>
+    <string name="settings_voice_default">Varsayılan</string>
+    <string name="settings_camera_rate">Kamera kare hızı</string>
+    <string name="settings_camera_rate_body">Düşük değer daha az veri ve pil kullanır.</string>
+    <string name="settings_privacy">Gizlilik</string>
+    <string name="settings_about">Hakkında</string>
+    <string name="settings_delete_account">Hesabımı ve verilerimi sil</string>
+    <string name="settings_sign_out">Çıkış yap</string>
+    <string name="settings_demo">Demo modu</string>
+
+    <string name="error_offline">Çevrimdışısın. Verilerin bu cihazda saklı.</string>
+    <string name="error_gemini_unreachable">Şu an Gemini\'ye ulaşamıyorum. Bağlantını kontrol edip tekrar dene.</string>
+    <string name="error_retry">Tekrar dene</string>
+
+    <string name="service_channel_name">Av modu</string>
+    <string name="service_channel_description">Ekran kapalıyken asistanın dinlemesini sürdürür.</string>
+    <string name="service_notification_title">FishMate dinliyor</string>
+    <string name="service_notification_body">Av moduna dönmek için dokun.</string>
+    <string name="service_stop">Durdur</string>
+    <plurals name="pending_writes">
+        <item quantity="one">%1$d değişiklik eşitlenmeyi bekliyor</item>
+        <item quantity="other">%1$d değişiklik eşitlenmeyi bekliyor</item>
+    </plurals>
+    <plurals name="fishing_vision_sent">
+        <!-- Turkish does not inflect the noun after a numeral ("bir kare",
+             "beş kare"), so both forms are identical; `one` is required by
+             the platform's plural rules for tr. -->
+        <item quantity="one">Bunu görüyor · %1$d kare</item>
+        <item quantity="other">Bunu görüyor · %1$d kare</item>
+    </plurals>
+</resources>

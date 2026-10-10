@@ -1,0 +1,81 @@
+# FishMate AI — production stack for the tr-vds host.
+#
+# This host already runs ~28 containers behind a shared `nginx-proxy` +
+# `acme-companion` pair. We integrate with that convention instead of touching
+# it: no host ports are published, no nginx config is edited, and TLS is issued
+# automatically from the `LETSENCRYPT_HOST` label.
+#
+#   nginx-proxy (:80/:443)  ──cicekci-proxy──▶  fishmate-api:8080
+#                                                     │
+#                                            fishmate_internal
+#                                                     ▼
+#                                               fishmate-db:5432
+name: fishmate
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: fishmate-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: fishmate
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: fishmate
+    volumes:
+      - fishmate_pgdata:/var/lib/postgresql/data
+    # Deliberately NOT published to the host: the host already has a system
+    # PostgreSQL on 5432, and this database is only ever reached by the API
+    # over the internal network.
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fishmate -d fishmate"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  api:
+    build:
+      context: ./repo/backend
+      dockerfile: Dockerfile
+    image: fishmate/api:latest
+    container_name: fishmate-api
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - ./.env
+    environment:
+      # Inside the compose network the database is `db`, not localhost.
+      DATABASE_URL: postgresql+asyncpg://fishmate:${POSTGRES_PASSWORD}@db:5432/fishmate
+      ENVIRONMENT: production
+      LOG_JSON: "true"
+      PORT: "8080"
+      # --- nginx-proxy / acme-companion service discovery ---
+      VIRTUAL_HOST: fisherman.salginci.com
+      VIRTUAL_PORT: "8080"
+      LETSENCRYPT_HOST: fisherman.salginci.com
+      LETSENCRYPT_EMAIL: ${LETSENCRYPT_EMAIL:-admin@maditao.com}
+    networks:
+      - internal   # reaches the database
+      - proxy      # reachable by nginx-proxy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/api/v1/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 25s
+      retries: 3
+
+networks:
+  internal:
+    name: fishmate_internal
+  proxy:
+    # Pre-existing shared network owned by the proxy stack — we join it,
+    # we do not define or manage it.
+    name: cicekci-proxy
+    external: true
+
+volumes:
+  fishmate_pgdata:
+    name: fishmate_pgdata

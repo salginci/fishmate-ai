@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    The Gemini spark, drawn as a vector so it stays crisp at any size and can
+    carry the brand gradient rather than a flat tint.
+
+    This is a reconstruction of the mark, not Google's distributed asset file.
+    Before anything public-facing, replace it with the official artwork from
+    Google's brand resources and follow their attribution rules: the mark is a
+    trademark, it must not be restyled, and it must not be placed so that it
+    reads as Google endorsing this app. It is used here to say what powers the
+    assistant, which is what "Powered by Gemini" is for.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <!--
+        Four concave arcs meeting at the centre. Each quadrant is a quarter
+        circle bulging inward, which is what gives the star its pinched waist.
+    -->
+    <path
+        android:pathData="M12,24 C12,17.373 6.627,12 0,12 C6.627,12 12,6.627 12,0 C12,6.627 17.373,12 24,12 C17.373,12 12,17.373 12,24 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="1.5"
+                android:startY="3"
+                android:endX="22.5"
+                android:endY="21"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#4285F4" />
+                <item android:offset="0.45" android:color="#9B72CB" />
+                <item android:offset="1.0" android:color="#D96570" />
+            </gradient>
+        </aapt:attr>
+    </path>
+</vector>

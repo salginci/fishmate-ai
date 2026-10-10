@@ -1,0 +1,139 @@
+{
+  "region": "TR",
+  "region_name_tr": "Türkiye",
+  "region_name_en": "Türkiye",
+  "authority": {
+    "name_tr": "T.C. Tarım ve Orman Bakanlığı — Balıkçılık ve Su Ürünleri Genel Müdürlüğü",
+    "name_en": "Ministry of Agriculture and Forestry — General Directorate of Fisheries and Aquaculture",
+    "url": "https://www.tarimorman.gov.tr/BSGM",
+    "notes_tr": "Amatör (sportif) avcılık kuralları dönemsel tebliğlerle belirlenir ve değişebilir.",
+    "notes_en": "Recreational fishing rules are set by periodic circulars and can change."
+  },
+  "_comment": [
+    "Transcribed from Çizelge 7 (MADDE 15) of the official circular named in",
+    "`source` below, read from the Resmî Gazete text on mevzuat.gov.tr.",
+    "",
+    "Entries are keyed by the catalogue's scientific species key, never by a",
+    "common name. The circular lists Akya (Lichia amia) at 40 cm and Sarıkuyruk",
+    "(Seriola dumerili) at 30 cm; matching on the Turkish word would have",
+    "attached one fish's limit to the other.",
+    "",
+    "A species absent from Çizelge 7 is deliberately absent here too, so the",
+    "tool keeps refusing for it. The circular's 'Diğer türler' row says those",
+    "have no minimum length, but it is the per-species silence that is safe to",
+    "report, not an inference about any particular fish.",
+    "",
+    "`general_rules` applies to every answer for this region and is surfaced",
+    "with the citation; see docs/ARCHITECTURE.md -> 'Regulatory data'."
+  ],
+  "source": {
+    "title_tr": "6/2 Numaralı Amatör Amaçlı Su Ürünleri Avcılığının Düzenlenmesi Hakkında Tebliğ (Tebliğ No: 2024/21), Çizelge 7",
+    "title_en": "Circular No. 6/2 on the Regulation of Recreational Fishing (Circular No. 2024/21), Table 7",
+    "url": "https://mevzuat.gov.tr/MevzuatMetin/yonetmelik/9.5.40946.pdf",
+    "effective_from": "2024-09-01",
+    "effective_to": "2028-08-31",
+    "last_amendment": "RG-16/9/2026-33372"
+  },
+  "general_rules": {
+    "tr": [
+      "Boy limiti belirtilen türlerde %5 küçük boylara istisna tanınır.",
+      "Kg cinsinden limit verilen türlerde, avlanan tür tek veya karışık olsun günlük toplam 5 kg'ı geçemez.",
+      "Adet sınırlamasına tabi birden fazla tür avlandığında toplam balık sayısı 3'ü geçemez.",
+      "Çizelge 7'de yer almayan türler için asgari boy limiti yoktur; kg limiti uygulanır.",
+      "Bu kurallar 1/9/2024 - 31/8/2028 av dönemi içindir ve tebliğ değişiklikleriyle güncellenebilir."
+    ],
+    "en": [
+      "A 5% tolerance below the stated minimum length is allowed.",
+      "For species limited by weight, the daily total may not exceed 5 kg, whether of one species or mixed.",
+      "When several count-limited species are taken, the total number of fish may not exceed 3.",
+      "Species absent from Table 7 have no minimum length; the weight limit still applies.",
+      "These rules cover the 1/9/2024 - 31/8/2028 season and can change by amendment."
+    ]
+  },
+  "_schema": {
+    "species_key": "dicentrarchus_labrax",
+    "min_length_cm": 0,
+    "closed_season": { "from": "MM-DD", "to": "MM-DD" },
+    "daily_limit": 0,
+    "protected": false,
+    "source_url": "https://...",
+    "source_title": "...",
+    "effective_from": "YYYY-MM-DD"
+  },
+  "species": {
+    "sparus_aurata": {
+      "min_length_cm": 20,
+      "daily_limit": null,
+      "protected": false,
+      "source_url": "https://mevzuat.gov.tr/MevzuatMetin/yonetmelik/9.5.40946.pdf",
+      "source_title": "Tebliğ No: 2024/21, Çizelge 7 — Çipura (Sparus aurata)",
+      "effective_from": "2024-09-01"
+    },
+    "dicentrarchus_labrax": {
+      "min_length_cm": 25,
+      "daily_limit": null,
+      "protected": false,
+      "source_url": "https://mevzuat.gov.tr/MevzuatMetin/yonetmelik/9.5.40946.pdf",
+      "source_title": "Tebliğ No: 2024/21, Çizelge 7 — Levrek (Dicentrarchus labrax)",
+      "effective_from": "2024-09-01"
+    },
+    "pomatomus_saltatrix": {
+      "min_length_cm": 18,
+      "daily_limit": null,
+      "protected": false,
+      "source_url": "https://mevzuat.gov.tr/MevzuatMetin/yonetmelik/9.5.40946.pdf",
+      "source_title": "Tebliğ No: 2024/21, Çizelge 7 — Lüfer (Pomatomus saltatrix)",
+      "effective_from": "2024-09-01"
+    },
+    "mugil_cephalus": {
+      "min_length_cm": 30,
+      "daily_limit": null,
+      "protected": false,
+      "source_url": "https://mevzuat.gov.tr/MevzuatMetin/yonetmelik/9.5.40946.pdf",
+      "source_title": "Tebliğ No: 2024/21, Çizelge 7 — Kefal, Has kefal (Mugil cephalus)",
+      "effective_from": "2024-09-01"
+    },
+    "argyrosomus_regius": {
+      "min_length_cm": 25,
+      "daily_limit": null,
+      "protected": false,
+      "source_url": "https://mevzuat.gov.tr/MevzuatMetin/yonetmelik/9.5.40946.pdf",
+      "source_title": "Tebliğ No: 2024/21, Çizelge 7 — Sarıağız (Argyrosomus regius)",
+      "effective_from": "2024-09-01"
+    },
+    "diplodus_sargus": {
+      "min_length_cm": 21,
+      "daily_limit": null,
+      "protected": false,
+      "source_url": "https://mevzuat.gov.tr/MevzuatMetin/yonetmelik/9.5.40946.pdf",
+      "source_title": "Tebliğ No: 2024/21, Çizelge 7 — Sargos (Diplodus sargos)",
+      "effective_from": "2024-09-01"
+    },
+    "seriola_dumerili": {
+      "min_length_cm": 30,
+      "closed_season": { "from": "04-15", "to": "05-15" },
+      "daily_limit": 1,
+      "protected": false,
+      "source_url": "https://mevzuat.gov.tr/MevzuatMetin/yonetmelik/9.5.40946.pdf",
+      "source_title": "Tebliğ No: 2024/21, Çizelge 7 — Sarıkuyruk (Seriola dumerili)",
+      "effective_from": "2024-09-01"
+    },
+    "lichia_amia": {
+      "min_length_cm": 40,
+      "closed_season": { "from": "04-15", "to": "05-15" },
+      "daily_limit": 1,
+      "protected": false,
+      "source_url": "https://mevzuat.gov.tr/MevzuatMetin/yonetmelik/9.5.40946.pdf",
+      "source_title": "Tebliğ No: 2024/21, Çizelge 7 — Akya (Lichia amia)",
+      "effective_from": "2024-09-01"
+    },
+    "trachurus_trachurus": {
+      "min_length_cm": 12,
+      "daily_limit": null,
+      "protected": false,
+      "source_url": "https://mevzuat.gov.tr/MevzuatMetin/yonetmelik/9.5.40946.pdf",
+      "source_title": "Tebliğ No: 2024/21, Çizelge 7 — İstavrit (Trachurus trachurus), Değişik: RG-16/9/2026-33372",
+      "effective_from": "2026-09-16"
+    }
+  }
+}

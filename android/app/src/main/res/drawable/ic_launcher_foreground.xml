@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A fish over a sound wave: the two things the product is about. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Fish body -->
+    <path
+        android:fillColor="#4FD1C5"
+        android:pathData="M38,54 C44,42 58,38 68,42 C74,44.5 78,49 80,54 C78,59 74,63.5 68,66 C58,70 44,66 38,54 Z" />
+    <!-- Tail -->
+    <path
+        android:fillColor="#2C9A92"
+        android:pathData="M38,54 L28,46 L31,54 L28,62 Z" />
+    <!-- Eye -->
+    <path
+        android:fillColor="#0B1D26"
+        android:pathData="M71,51 m-2.2,0 a2.2,2.2 0 1,0 4.4,0 a2.2,2.2 0 1,0 -4.4,0" />
+
+    <!-- Voice wave beneath -->
+    <path
+        android:strokeColor="#F6C66B"
+        android:strokeWidth="3"
+        android:strokeLineCap="round"
+        android:pathData="M34,76 L34,80" />
+    <path
+        android:strokeColor="#F6C66B"
+        android:strokeWidth="3"
+        android:strokeLineCap="round"
+        android:pathData="M44,72 L44,84" />
+    <path
+        android:strokeColor="#F6C66B"
+        android:strokeWidth="3"
+        android:strokeLineCap="round"
+        android:pathData="M54,69 L54,87" />
+    <path
+        android:strokeColor="#F6C66B"
+        android:strokeWidth="3"
+        android:strokeLineCap="round"
+        android:pathData="M64,72 L64,84" />
+    <path
+        android:strokeColor="#F6C66B"
+        android:strokeWidth="3"
+        android:strokeLineCap="round"
+        android:pathData="M74,76 L74,80" />
+</vector>

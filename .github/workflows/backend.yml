@@ -1,0 +1,131 @@
+name: Backend
+
+on:
+  push:
+    branches: [main]
+    paths: ['backend/**', '.github/workflows/backend.yml']
+  pull_request:
+    paths: ['backend/**', '.github/workflows/backend.yml']
+  workflow_dispatch:
+
+concurrency:
+  group: backend-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: backend
+
+jobs:
+  lint:
+    name: Lint and format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/pyproject.toml
+
+      - run: uv venv .venv
+      - run: uv pip install --python .venv/bin/python -e ".[dev]"
+
+      - name: Ruff lint
+        run: .venv/bin/ruff check app tests --output-format=github
+
+      - name: Ruff format check
+        run: .venv/bin/ruff format --check app tests
+
+      - name: Type check
+        run: .venv/bin/mypy app
+
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/pyproject.toml
+
+      - run: uv venv .venv
+      - run: uv pip install --python .venv/bin/python -e ".[dev]"
+
+      - name: Run tests
+        env:
+          # Tests must never reach a real service: the Live token service is
+          # faked and the weather provider is the deterministic mock.
+          AUTH_SECRET: ci-only-not-a-real-secret-0123456789abcdef
+          GEMINI_API_KEY: test-key-not-real
+          DATABASE_URL: "sqlite+aiosqlite:///:memory:"
+          ENVIRONMENT: test
+          WEATHER_PROVIDER: mock
+          LOG_LEVEL: WARNING
+        run: .venv/bin/python -m pytest -q --cov=app --cov-report=term-missing:skip-covered
+
+  migrations:
+    name: Migrations against PostgreSQL
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: fishmate
+          POSTGRES_PASSWORD: fishmate
+          POSTGRES_DB: fishmate
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U fishmate"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/pyproject.toml
+
+      - run: uv venv .venv
+      - run: uv pip install --python .venv/bin/python -e ".[dev]" psycopg2-binary
+
+      # SQLite proves the migrations are self-consistent; this proves they
+      # actually apply to the engine production runs on.
+      - name: Upgrade, downgrade, upgrade
+        env:
+          AUTH_SECRET: ci-only-not-a-real-secret-0123456789abcdef
+          DATABASE_URL: "postgresql+asyncpg://fishmate:fishmate@localhost:5432/fishmate"
+        run: |
+          .venv/bin/alembic upgrade head
+          .venv/bin/alembic downgrade base
+          .venv/bin/alembic upgrade head
+
+  docker:
+    name: Container builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: backend
+          push: false
+          load: true
+          tags: fishmate-api:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Container serves health
+        run: |
+          docker run -d --name api -p 8099:8080 \
+            -e AUTH_SECRET=ci-only-not-a-real-secret-0123456789abcdef \
+            -e DATABASE_URL='sqlite+aiosqlite:///./ci.db' \
+            -e ENVIRONMENT=development \
+            fishmate-api:ci
+          for i in $(seq 1 30); do
+            if curl -fsS localhost:8099/api/v1/health; then echo; exit 0; fi
+            sleep 1
+          done
+          echo "health check never passed"; docker logs api; exit 1
