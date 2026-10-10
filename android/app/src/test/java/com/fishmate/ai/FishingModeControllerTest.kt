@@ -1203,6 +1203,41 @@ class FishingModeControllerTest {
     }
 
     @Test
+    fun `a look waits for more than one frame before saying it can see`() = runTest {
+        // Reported from a shore: the camera blinked on and off and the
+        // assistant did not seem to perceive anything. At the resting half a
+        // frame per second, answering after one frame means answering about
+        // whatever the phone was pointing at in the instant the model decided
+        // to look — before the angler has raised it.
+        val camera = FakeCameraSource()
+        val h = Harness(camera = camera, credentialsResult = { AppResult.Ok(credentials()) })
+        h.controller.start("tr", false)
+        h.scope.advanceUntilIdle()
+        h.session.emitEvent(LiveEvent.Ready)
+        h.scope.advanceUntilIdle()
+
+        h.session.emitToolCall("set_camera", buildJsonObject { put("enabled", true) })
+        // Time is driven by hand: `advanceUntilIdle` would run the camera to
+        // the end of its frames whatever the rule, and an assertion made
+        // after that passes against a one-frame look too. The question is
+        // whether the *answer* waits, so the clock has to stop where the
+        // first frame has arrived and the rest have not.
+        h.scope.testScheduler.runCurrent()
+
+        assertTrue(
+            "the model was told it could see after a single frame",
+            h.session.sentToolResults.isEmpty(),
+        )
+
+        h.scope.advanceUntilIdle()
+        assertTrue("the look never completed", h.session.sentToolResults.isNotEmpty())
+        assertTrue(
+            "a look must gather more than one frame, got ${h.controller.state.value.framesSent}",
+            h.controller.state.value.framesSent > 1,
+        )
+    }
+
+    @Test
     fun `an inland angler is not asked to show the water`() = runTest {
         // The brief says whether there is a sea state where they are standing.
         // Without it the opening tells someone sitting at home twenty

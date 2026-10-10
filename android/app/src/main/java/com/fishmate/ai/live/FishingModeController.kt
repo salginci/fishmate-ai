@@ -298,7 +298,7 @@ class FishingModeController(
             // normal case for this button, and used to mean it silently did
             // nothing. Start the camera just long enough to get one frame.
             val wasOn = _state.value.cameraEnabled
-            if (!awaitFirstFrame()) Log2.w(TAG, "look-at-this produced no frame")
+            if (!awaitLookFrames()) Log2.w(TAG, "look-at-this produced no frame")
             if (!wasOn) setCameraEnabled(false)
         }
     }
@@ -923,7 +923,7 @@ class FishingModeController(
         }
 
         val alreadyWatching = _state.value.cameraEnabled && _state.value.framesSent > 0
-        val arrived = if (alreadyWatching) true else awaitFirstFrame()
+        val arrived = if (alreadyWatching) true else awaitLookFrames()
         if (!arrived) {
             setCameraEnabled(false)
             return deviceToolError(
@@ -941,11 +941,16 @@ class FishingModeController(
                 put("camera", "on")
                 put(
                     "instruction_to_model",
-                    "You can see now, and a frame has already been sent. Describe what " +
-                        "is actually in it, separating what you observe from what you " +
-                        "infer. If it is too dark or blurred to judge, say so and ask " +
-                        "for a better angle rather than guessing. Call set_camera with " +
-                        "enabled=false when you have finished looking.",
+                    "You can see now, and several frames have already been sent. " +
+                        "Describe what is actually in them, separating what you observe " +
+                        "from what you infer. " +
+                        "If the view is dark, blurred, or clearly not what you asked to " +
+                        "see — a pocket, the ground, the angler themselves — then say so, " +
+                        "ask them to point the phone at it, and KEEP THE CAMERA ON. Do " +
+                        "not close it and do not describe something you cannot make out: " +
+                        "they are holding a rod and need a moment to aim. " +
+                        "Call set_camera with enabled=false only once you have actually " +
+                        "seen the thing and finished with it.",
                 )
             },
         )
@@ -1104,17 +1109,46 @@ class FishingModeController(
         greetingWaiter = null
     }
 
-    private suspend fun awaitFirstFrame(): Boolean {
+    /**
+     * Open the camera and let it actually see something before answering.
+     *
+     * One frame used to be enough to return, and it is not. At the default
+     * half a frame per second that single frame is whatever the phone
+     * happened to be pointing at in the instant the model decided to look —
+     * a pocket, the ground, the angler's chest — because nobody has raised
+     * the phone yet. The model then described that, or hedged, and closed
+     * the camera again. On the shore it reads as the camera blinking on and
+     * off without perceiving anything.
+     *
+     * So a look waits for several frames, and raises the frame rate while it
+     * waits so the wait stays short: [CAMERA_LOOK_FRAMES] at
+     * [CAMERA_LOOK_FPS] is about a second and a half of footage rather than
+     * one snapshot. The angler's own setting is restored afterwards, since
+     * the elevated rate is for looking, not for the whole session.
+     */
+    private suspend fun awaitLookFrames(): Boolean {
+        val before = _state.value.frameConfig.framesPerSecond
+        val startedAt = _state.value.framesSent
+        setFrameRate(CAMERA_LOOK_FPS)
         val waiter = CompletableDeferred<Boolean>()
         firstFrameWaiter = waiter
         setCameraEnabled(true)
         return try {
-            withTimeoutOrNull(CAMERA_FIRST_FRAME_TIMEOUT_MS) { waiter.await() } ?: run {
+            val first = withTimeoutOrNull(CAMERA_FIRST_FRAME_TIMEOUT_MS) { waiter.await() }
+            if (first != true) {
                 Log2.w(TAG, "camera produced no frame within ${CAMERA_FIRST_FRAME_TIMEOUT_MS}ms")
-                false
+                return false
             }
+            // Give it a few more before saying "you can see now".
+            withTimeoutOrNull(CAMERA_LOOK_TIMEOUT_MS) {
+                while (_state.value.framesSent - startedAt < CAMERA_LOOK_FRAMES) delay(80)
+            }
+            val got = _state.value.framesSent - startedAt
+            Log2.i(TAG, "look ready after $got frame(s)")
+            true
         } finally {
             firstFrameWaiter = null
+            setFrameRate(before)
         }
     }
 
@@ -1228,6 +1262,22 @@ class FishingModeController(
          * has frozen.
          */
         private const val CAMERA_FIRST_FRAME_TIMEOUT_MS = 2_500L
+
+        /** Frames a look waits for before the model is told it can see. */
+        private const val CAMERA_LOOK_FRAMES = 3
+
+        /**
+         * Frame rate while a look is in progress.
+         *
+         * Four times the resting rate, for a second or two. The resting rate
+         * is chosen for a three-hour session on a phone battery; this is
+         * chosen for the few seconds when the model is actually looking at
+         * something, and the angler's setting is put back afterwards.
+         */
+        private const val CAMERA_LOOK_FPS = 2.0
+
+        /** Upper bound on that wait, so a stalled camera cannot hang a turn. */
+        private const val CAMERA_LOOK_TIMEOUT_MS = 3_000L
 
         /**
          * How long the microphone waits for the greeting to begin.
