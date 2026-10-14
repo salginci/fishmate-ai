@@ -1317,11 +1317,20 @@ class FishingModeController(
         /**
          * How long the speaker stays down while the gate decides.
          *
-         * Long enough for a syllable or two to clear the bar with the leak out
-         * of the way, short enough that a false alarm is a dip rather than a
-         * hole in the sentence.
+         * Measured rather than guessed, from the first duck that worked on the
+         * device: the barge-in was accepted 113 ms after the volume dropped,
+         * which is about the six consecutive frames the accept test asks for
+         * plus the microphone's own lag. 600 ms was the first guess and it
+         * cost too much — a greeting that kept tripping suspicion spent 29 %
+         * of itself at a sixth of its volume, which is heard as pulsing. This
+         * leaves three times the measured latency and halves the dip.
+         *
+         * Lengthening the cooldown instead was the obvious alternative and it
+         * is the wrong one: the real barge-in arrived 2.5 s after a false
+         * duck, so a cooldown long enough to stop the pulsing would have
+         * thrown away the question it exists to hear.
          */
-        private const val DUCK_WINDOW_MS = 600L
+        private const val DUCK_WINDOW_MS = 350L
         private const val DUCK_POLL_MS = 20L
 
         /** Shortest gap between two ducks, so a turn is not delivered in a stutter. */
