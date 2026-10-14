@@ -80,6 +80,15 @@ class AudioCapture(
     var speakerLevel: () -> Float = { 0f }
 
     /**
+     * The attenuation the player currently has applied, 0..1 — see
+     * `AudioPlayer.duckScale`. Read per frame beside [speakerLevel], because
+     * the gate has to know the difference between a speaker that is quiet and
+     * one that is being held down on purpose.
+     */
+    @Volatile
+    var speakerScale: () -> Float = { 1f }
+
+    /**
      * Called on the capture thread the moment the gate accepts a barge-in.
      *
      * The server's own interruption arrives a round trip later; this is what
@@ -88,7 +97,27 @@ class AudioCapture(
     @Volatile
     var onBargeIn: () -> Unit = {}
 
+    /**
+     * Called on the capture thread when the gate suspects speech it cannot
+     * judge through the speaker — see `EchoGate.isSuspectingSpeech`.
+     *
+     * Fires on the transition only, and may fire several times in a turn: the
+     * controller decides what to do with it and how often, because ducking
+     * repeatedly is a product decision and this is a measurement.
+     */
+    @Volatile
+    var onSpeechSuspected: () -> Unit = {}
+
     private val echoGate = EchoGate()
+
+    /**
+     * Whether the gate has accepted a barge-in for the turn being spoken.
+     *
+     * Read by the controller while it holds the speaker down: that wait ends
+     * either because a voice cleared the bar with the leak out of the way, or
+     * because nothing did.
+     */
+    val isBargeInOpen: Boolean get() = echoGate.isBargeInOpen
 
     /**
      * Which capture owns the microphone.
@@ -214,11 +243,13 @@ class AudioCapture(
                         // AudioRecord buffer never overflows.
                         if (!isMuted) {
                             val wasOpen = echoGate.isBargeInOpen
+                            val wasSuspecting = echoGate.isSuspectingSpeech
                             val accepted = echoGate.accepts(
                                 buffer,
                                 read,
                                 suppressWhileSpeaking,
                                 speakerLevel(),
+                                speakerScale(),
                             )
                             if (accepted) {
                                 // The transition, not the state: fire once per
@@ -227,6 +258,10 @@ class AudioCapture(
                                     runCatching { onBargeIn() }
                                 }
                                 trySend(buffer.copyOf(read))
+                            } else if (suppressWhileSpeaking && !wasSuspecting &&
+                                echoGate.isSuspectingSpeech
+                            ) {
+                                runCatching { onSpeechSuspected() }
                             }
                         }
                     }

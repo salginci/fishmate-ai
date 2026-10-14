@@ -251,6 +251,15 @@ fun FishingModeScreen(
                         stringResource(R.string.error_gemini_unreachable)
                     } else if (state.phase == AssistantPhase.LISTENING) {
                         stringResource(R.string.fishing_ask_anything)
+                    } else if (speaking) {
+                        // The line that was missing. Cutting in by voice on a
+                        // loudspeaker is unreliable by measurement, not by
+                        // oversight, and the tap is the path that always
+                        // works — but only if the angler knows it is there.
+                        // One angler asked a question over the assistant, had
+                        // it swallowed, and sat waiting a full minute for an
+                        // answer the server was never sent.
+                        interruptLabel
                     } else {
                         ""
                     },

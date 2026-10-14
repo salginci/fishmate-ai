@@ -245,6 +245,23 @@ stops at first failure so ordering holds).
   gates the mic against a measured echo floor on speaker only. Do not "fix" it
   by muting during playback — that removes barge-in. Thresholds are pinned by
   `EchoGateTest`; two plausible-looking estimators both failed on-device first.
+- **Barge-in on a loudspeaker is solved by ducking, not by a threshold.**
+  Three settings of the gate were measured on a Galaxy A35 and each one either
+  cut the assistant off mid-greeting or swallowed a question asked over it:
+  the leak read 1888 against a predicted 818 early in a turn, while a real
+  question read 5585 against a predicted 470 and was rejected by a bar carrying
+  the loudest moment of that turn. The ratios overlap, so no bar separates them.
+  So on the first hint of speech — `EchoGate.isSuspectingSpeech`, which is
+  deliberately weak evidence — the controller drops the output to
+  `AudioPlayer.DUCK_FACTOR` for 600 ms. That changes what is in the air instead
+  of what we believe about it: the leak falls with the volume, the angler does
+  not, and the unchanged accept test finally has a margin. A false duck costs a
+  dip in volume; a missed question costs the conversation, which is the
+  asymmetry that licenses acting early. The duck is passed to the gate
+  explicitly as `outputScale`, never inferred from the reference — a reference
+  cannot tell a ducked speaker from a quiet passage, and inferring it would let
+  the leak in the gaps between words through. Nothing is learned while ducked.
+  Not yet ported to `web/`.
   The gate reads two different references and the distinction is load-bearing:
   the *bar* is built on the held envelope, because a gap between words is not
   silence, while *evidence* about the leak may only be taken at an instant the

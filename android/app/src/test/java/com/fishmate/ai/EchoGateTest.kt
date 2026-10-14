@@ -51,10 +51,11 @@ class EchoGateTest {
         times: Int,
         speaking: Boolean,
         reference: Float,
+        outputScale: Float = 1f,
     ): Int {
         var passed = 0
         repeat(times) {
-            if (accepts(frame(amplitude), 640, speaking, reference)) passed++
+            if (accepts(frame(amplitude), 640, speaking, reference, outputScale)) passed++
         }
         return passed
     }
@@ -306,6 +307,76 @@ class EchoGateTest {
         )
 
         assertTrue("echo louder than anything measured was forwarded ($passed frames)", passed == 0)
+        assertFalse(gate.isBargeInOpen)
+    }
+
+    @Test
+    fun `a question asked over the assistant is heard once the speaker ducks`() {
+        """The measurement that forced the duck, replayed.
+
+        On the device at 15:33:20 the angler asked a question while the
+        assistant was talking. The microphone read 5585 of speech-band energy,
+        the gate's own prediction of the leak for that instant was 470, and the
+        frame was rejected anyway because the bar still carried the loudest
+        moment of that turn: 8611. The server never heard the question, so it
+        never answered, and the angler sat watching a screen that said
+        Listening.
+
+        Lowering the bar is not the fix — in the same log the assistant's own
+        echo read 1888 and 3448 against predictions of 818 and 1502, so any bar
+        that hears the angler also hears the assistant. What separates them is
+        the speaker: duck it, and the leak falls while the angler does not.
+        """
+        val gate = EchoGate()
+        repeat(200) { gate.accepts(frame(2), 640, speaking = false, reference = 0f) }
+
+        // A loud turn, so the bar is high and honestly earned.
+        gate.feed(amplitude = 7000, times = 60, speaking = true, reference = 0.9f)
+
+        // The angler starts talking. Full volume: nothing gets through, and
+        // the gate says it suspects something.
+        val blocked = gate.feed(amplitude = 8800, times = 10, speaking = true, reference = 0.9f)
+        assertTrue("that bar should not be clearable at full volume, got $blocked", blocked == 0)
+        assertTrue("the gate must at least suspect speech", gate.isSuspectingSpeech)
+
+        // The controller ducks. Two things change together, as they do on the
+        // device: the reference falls because `outputLevel` is scaled by the
+        // duck, and the gate is told the output is being held down — which is
+        // what licenses it to set aside a bar measured at full volume. The
+        // angler's own voice does not change at all.
+        val duck = com.fishmate.ai.audio.AudioPlayer.DUCK_FACTOR
+        val passed = gate.feed(
+            amplitude = 8800,
+            times = EchoGate.BARGE_IN_FRAMES + 4,
+            speaking = true,
+            reference = 0.9f * duck,
+            outputScale = duck,
+        )
+
+        assertTrue("the angler must be heard once the speaker is out of the way", passed > 0)
+        assertTrue(gate.isBargeInOpen)
+    }
+
+    @Test
+    fun `ducking does not let the assistant interrupt itself`() {
+        // The other half: the leak drops with the volume. A duck that was
+        // triggered by echo must leave the gate exactly where it was, or the
+        // duck becomes a new way to cut the greeting short.
+        val gate = EchoGate()
+        repeat(200) { gate.accepts(frame(2), 640, speaking = false, reference = 0f) }
+        gate.feed(amplitude = 7000, times = 60, speaking = true, reference = 0.9f)
+
+        // Ducked by a factor of DUCK_FACTOR: both the reference and the echo
+        // reaching the microphone fall together.
+        val duck = com.fishmate.ai.audio.AudioPlayer.DUCK_FACTOR
+        val passed = gate.feed(
+            amplitude = (7000 * duck).toInt(),
+            times = 100,
+            speaking = true,
+            reference = 0.9f * duck,
+            outputScale = duck,
+        )
+        assertTrue("the duck forwarded the assistant's own echo on $passed frames", passed == 0)
         assertFalse(gate.isBargeInOpen)
     }
 

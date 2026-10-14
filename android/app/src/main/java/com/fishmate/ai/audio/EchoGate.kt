@@ -87,6 +87,7 @@ class EchoGate(
     private var turnEchoPeak = 0.0
     private var loudFrames = 0
     private var bargeInOpen = false
+    private var suspectFrames = 0
 
     /** Current echo estimate for the last reference seen, for logs and tests. */
     var estimatedEchoRms: Double = 0.0
@@ -108,6 +109,27 @@ class EchoGate(
     val isBargeInOpen: Boolean get() = bargeInOpen
 
     /**
+     * Someone may be talking, and the speaker is in the way of finding out.
+     *
+     * Deliberately weaker evidence than [isBargeInOpen]: a frame only has to
+     * be speech-shaped and louder than the leak predicted for this instant,
+     * for [SUSPECT_FRAMES] in a row. That is far too little to interrupt the
+     * assistant on — early in a turn the prediction runs low and its own echo
+     * clears this easily, which is exactly what happened at 15:32:01 on the
+     * device, where the leak read 1888 against a prediction of 818.
+     *
+     * It is enough to *duck* on. Dropping the output for a moment costs
+     * nothing if this was echo — the leak drops with it and the gate goes back
+     * to rejecting — and it is the only thing that makes the real case
+     * decidable: the angler's voice does not drop when the speaker does. The
+     * measurement that forced this: a question asked over the assistant read
+     * 5585 at the microphone with the prediction at 470, and was rejected
+     * anyway because the bar still carried the loudest moment of that turn.
+     * The server never heard the question, so it never answered.
+     */
+    val isSuspectingSpeech: Boolean get() = !bargeInOpen && suspectFrames >= SUSPECT_FRAMES
+
+    /**
      * @param speaking whether the assistant's audio is going out of the
      *   built-in speaker right now. False means there is no acoustic path
      *   (headset, or silence), so capture runs wide open.
@@ -120,6 +142,7 @@ class EchoGate(
         length: Int,
         speaking: Boolean,
         reference: Float = 0f,
+        outputScale: Float = 1f,
     ): Boolean {
         if (!speaking) {
             // Measure even here, where nothing is being judged. Without it
@@ -203,6 +226,7 @@ class EchoGate(
             calibratedFrames++
             turnEchoPeak = maxOf(turnEchoPeak, rms)
             loudFrames = 0
+            suspectFrames = 0
             return false
         }
 
@@ -257,13 +281,26 @@ class EchoGate(
         // "quiet because it has not started properly yet" from "quiet".
         val measured = echoGain > 0.0
         val margin = if (measured) bargeInFactor else UNCALIBRATED_FACTOR
+        // The peak was measured at whatever the speaker was doing then, so it
+        // is scaled by what the speaker is doing now. Only an *externally
+        // known* attenuation counts here — the duck — never an inference from
+        // the reference, which cannot tell a ducked speaker from a quiet
+        // passage and would let the leak in the gaps between words through.
+        val scale = outputScale.coerceIn(0f, 1f).toDouble()
         val threshold = maxOf(
             noiseBar(),
-            turnEchoPeak * margin,
+            turnEchoPeak * scale * margin,
             estimatedEchoRms * bargeInFactor,
         )
 
         val voiceLike = speechRatio >= minSpeechRatio
+
+        // Suspicion, which is not a decision. See [isSuspectingSpeech].
+        if (voiceLike && rms > maxOf(noiseBar(), estimatedEchoRms * SUSPECT_FACTOR)) {
+            suspectFrames++
+        } else {
+            suspectFrames = 0
+        }
 
         // A periodic line while the assistant is speaking, so this can be
         // tuned from a real shore instead of from a guess. Debug builds only,
@@ -297,8 +334,15 @@ class EchoGate(
             // second at 50 frames a second, so a bar built during a loud
             // passage was gone a second and a half later: that is how 14:34:58
             // ended up judging a 5915 leak against a bar of 3842.
-            if (calibratable) turnEchoPeak = maxOf(rms, turnEchoPeak)
-            if (calibratable && voiceLike) {
+            // Nothing is learned while the speaker is ducked: these frames
+            // describe a leak at a sixth of the volume, and carrying that
+            // number into the rest of the turn would leave the assistant
+            // unprotected the moment the volume comes back up.
+            val atFullOutput = scale >= 1.0
+            if (atFullOutput && calibratable && plausiblyEcho(rms)) {
+                turnEchoPeak = maxOf(rms, turnEchoPeak)
+            }
+            if (atFullOutput && calibratable && voiceLike && plausiblyEcho(rms)) {
                 echoGain = maxOf(rms / liveReference, echoGain * gainDecay)
             }
             loudFrames = 0
@@ -328,6 +372,7 @@ class EchoGate(
         calibratedFrames = 0
         estimatedEchoRms = 0.0
         loudFrames = 0
+        suspectFrames = 0
         bargeInOpen = false
     }
 
@@ -364,6 +409,23 @@ class EchoGate(
      * handling noise would otherwise qualify.
      */
     private fun noiseBar(): Double = maxOf(minBargeInRms, roomFloor * NOISE_MARGIN)
+
+    /**
+     * Whether this frame can be believed as evidence about the leak.
+     *
+     * A frame well above the leak predicted for this instant is not a louder
+     * echo, it is a second source — the only other thing in the room being the
+     * person the gate exists to hear. Learning from it is how the bar climbs
+     * above the voice that raised it, and this is the third place that trap
+     * turned up: the turn peak, the echo gain, and then the gain again by way
+     * of suspicion, where a question asked over the assistant taught the gate
+     * to predict a leak the size of the question and so to stop suspecting it.
+     *
+     * Before calibration there is no prediction, and the first loud frames of
+     * a turn have to be allowed to make one.
+     */
+    private fun plausiblyEcho(rms: Double): Boolean =
+        estimatedEchoRms <= 0.0 || rms <= estimatedEchoRms * SUSPECT_FACTOR
 
     /**
      * Track the room's own noise while the assistant is silent.
@@ -428,6 +490,21 @@ class EchoGate(
          * interrupt, and the tap is always there.
          */
         const val UNCALIBRATED_FACTOR = 3.0
+
+        /**
+         * Margin over the predicted leak before the gate gets suspicious
+         * enough to duck the speaker.
+         *
+         * Only just above the prediction, because the duck is cheap and
+         * missing a question is not. Everything that protects the assistant
+         * from its own voice still sits in the accept test; this number only
+         * decides when to take the speaker out of the microphone's way so
+         * that test can be answered honestly.
+         */
+        const val SUSPECT_FACTOR = 1.2
+
+        /** Consecutive suspect frames before ducking. 100 ms at 20 ms a frame. */
+        const val SUSPECT_FRAMES = 5
 
         /**
          * Absolute floor. Everything must clear this, so room tone, wind and

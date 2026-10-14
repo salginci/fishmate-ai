@@ -147,6 +147,14 @@ class FishingModeControllerTest {
             private set
         var bargeInCallback: () -> Unit = {}
             private set
+        var suspectCallback: () -> Unit = {}
+            private set
+
+        /** Stands in for the gate's latch, which the duck wait polls. */
+        var bargeInOpen = false
+
+        /** What the player has been asked to do with its volume. */
+        val volumeMoves = mutableListOf<String>()
 
         /**
          * Whether the echo guard currently has the microphone gated. A relaxed
@@ -174,6 +182,11 @@ class FishingModeControllerTest {
             every { audioCapture.speakerLevel } answers { speakerLevelProvider }
             every { audioCapture.onBargeIn = any() } answers { bargeInCallback = firstArg() }
             every { audioCapture.onBargeIn } answers { bargeInCallback }
+            every { audioCapture.onSpeechSuspected = any() } answers { suspectCallback = firstArg() }
+            every { audioCapture.onSpeechSuspected } answers { suspectCallback }
+            every { audioCapture.isBargeInOpen } answers { bargeInOpen }
+            every { audioPlayer.duck(any()) } answers { volumeMoves += "duck" }
+            every { audioPlayer.unduck() } answers { volumeMoves += "unduck" }
             coEvery {
                 credentialsRepo.current(any(), any(), any(), any(), any())
             } answers { credentialsResult() }
@@ -951,6 +964,67 @@ class FishingModeControllerTest {
         h.audible = false
         h.scope.advanceUntilIdle()
         assertEquals(AssistantPhase.LISTENING, h.controller.state.value.phase)
+    }
+
+    @Test
+    fun `a hint of speech ducks the speaker, and puts it back if nothing follows`() = runTest {
+        // The duck is acted on weak evidence on purpose, so the case that has
+        // to be cheap is the false alarm: the assistant's own echo trips it,
+        // the volume dips, nothing clears the bar with the leak out of the
+        // way, and the sentence carries on at full volume. If this left the
+        // speaker down, a greeting would finish at a sixth of its volume.
+        val h = Harness(credentialsResult = { AppResult.Ok(credentials()) })
+        h.controller.start("tr", false)
+        h.scope.advanceUntilIdle()
+        h.session.emitEvent(LiveEvent.Ready)
+        h.scope.advanceUntilIdle()
+
+        h.audible = true
+        h.session.emitAudio(ByteArray(960))
+        h.scope.advanceUntilIdle()
+
+        h.suspectCallback()
+        h.scope.testScheduler.runCurrent()
+        assertEquals(listOf("duck"), h.volumeMoves)
+
+        // Nothing is there, so the window runs out and the volume returns.
+        h.scope.advanceUntilIdle()
+        assertEquals(listOf("duck", "unduck"), h.volumeMoves)
+        assertEquals(AssistantPhase.SPEAKING, h.controller.state.value.phase)
+    }
+
+    @Test
+    fun `a voice heard through the duck interrupts, and the duck does not undo it`() = runTest {
+        // The case the duck exists for. With the speaker held down the gate
+        // can finally tell a question from an echo, latches open, and the
+        // barge-in path flushes playback — which lifts the duck itself. The
+        // waiting coroutine must not then raise the volume on whatever the
+        // server sends next.
+        val h = Harness(credentialsResult = { AppResult.Ok(credentials()) })
+        h.controller.start("tr", false)
+        h.scope.advanceUntilIdle()
+        h.session.emitEvent(LiveEvent.Ready)
+        h.scope.advanceUntilIdle()
+
+        h.audible = true
+        h.session.emitAudio(ByteArray(960))
+        h.scope.advanceUntilIdle()
+
+        h.suspectCallback()
+        h.scope.testScheduler.runCurrent()
+        assertEquals(listOf("duck"), h.volumeMoves)
+
+        // The gate hears them through the duck.
+        h.bargeInOpen = true
+        h.bargeInCallback()
+        h.scope.advanceUntilIdle()
+
+        assertEquals(AssistantPhase.LISTENING, h.controller.state.value.phase)
+        assertEquals(
+            "the duck wait must not restore the volume after a barge-in",
+            listOf("duck"),
+            h.volumeMoves,
+        )
     }
 
     @Test
