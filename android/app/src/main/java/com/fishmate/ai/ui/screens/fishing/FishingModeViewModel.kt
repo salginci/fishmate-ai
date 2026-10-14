@@ -10,6 +10,7 @@ import com.fishmate.ai.data.repository.AuthRepository
 import com.fishmate.ai.data.repository.FishingRepository
 import com.fishmate.ai.data.repository.LiveCredentialsRepository
 import com.fishmate.ai.data.repository.TranslationRepository
+import com.fishmate.ai.live.AssistantPhase
 import com.fishmate.ai.live.FishingModeController
 import com.fishmate.ai.core.AppResult
 import com.fishmate.ai.core.Log2
@@ -135,8 +136,28 @@ class FishingModeViewModel @Inject constructor(
                 .collect { transcript ->
                     if (!_showTranslation.value) return@collect
                     val target = _subtitleLanguage.value
+                    // The line being spoken is still growing, and a subtitle
+                    // for half a sentence is thrown away when the rest of it
+                    // arrives: `applyTranslation` refuses a translation whose
+                    // source text no longer matches. Measured against the
+                    // backend, one spoken turn was costing five to ten
+                    // requests and keeping one a second in flight for the
+                    // whole conversation, on a phone whose mobile link was
+                    // already stalling for seconds at a time. The settled
+                    // debounce was never enough on its own: speech keeps
+                    // arriving, so the line keeps settling at a new length.
+                    //
+                    // So the last line waits until the assistant has stopped
+                    // talking. Everything above it has finished growing by
+                    // definition.
+                    val growing = if (state.value.phase == AssistantPhase.SPEAKING) {
+                        transcript.lastOrNull()?.id
+                    } else {
+                        null
+                    }
                     transcript.takeLast(TRANSLATE_TAIL_LINES)
                         .filter { it.translation == null && it.text.isNotBlank() }
+                        .filter { it.id != growing }
                         .forEach { line ->
                             when (val result = translationRepository.translate(line.text, target)) {
                                 is AppResult.Ok ->

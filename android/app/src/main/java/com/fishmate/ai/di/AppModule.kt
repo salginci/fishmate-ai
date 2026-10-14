@@ -44,6 +44,9 @@ import retrofit2.converter.kotlinx.serialization.asConverterFactory
 @InstallIn(SingletonComponent::class)
 object AppModule {
 
+    /** How long a subtitle may take before it is no longer worth having. */
+    private const val SUBTITLE_TIMEOUT_SECONDS = 6L
+
     @Provides
     @Singleton
     fun json(): Json = Json {
@@ -130,8 +133,25 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun translationRepository(api: FishMateApi): TranslationRepository =
-        TranslationRepository(api)
+    fun translationRepository(retrofit: Retrofit, client: OkHttpClient): TranslationRepository {
+        // Subtitles get their own call timeout, and nothing else does.
+        //
+        // The shared client has no overall deadline: a tool call on a weak
+        // shore signal should keep trying, because the conversation is waiting
+        // on it. A subtitle is not waiting on anything — it is a nicety — and
+        // one measured on the device held its connection for 14.9 s while the
+        // angler sat in silence waiting for an answer that had not been sent
+        // yet. A subtitle that cannot be fetched in a few seconds has missed
+        // the moment it belonged to anyway.
+        //
+        // Built with newBuilder(), so it shares the connection pool and
+        // dispatcher rather than opening a second set of sockets.
+        val bounded = client.newBuilder()
+            .callTimeout(SUBTITLE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .build()
+        val api = retrofit.newBuilder().client(bounded).build().create(FishMateApi::class.java)
+        return TranslationRepository(api)
+    }
 
     @Provides
     @Singleton
