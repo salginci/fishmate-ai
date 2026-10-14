@@ -1317,20 +1317,21 @@ class FishingModeController(
         /**
          * How long the speaker stays down while the gate decides.
          *
-         * Measured rather than guessed, from the first duck that worked on the
-         * device: the barge-in was accepted 113 ms after the volume dropped,
-         * which is about the six consecutive frames the accept test asks for
-         * plus the microphone's own lag. 600 ms was the first guess and it
-         * cost too much — a greeting that kept tripping suspicion spent 29 %
-         * of itself at a sixth of its volume, which is heard as pulsing. This
-         * leaves three times the measured latency and halves the dip.
+         * Has to outlast what the gate now asks for while ducked:
+         * `EchoGate.DUCKED_BARGE_IN_FRAMES` is 400 ms of continuous speech,
+         * because the 150 ms of inflated echo that follows a volume step was
+         * accepted as a barge-in four times on the device by an angler who was
+         * not speaking at all. A window shorter than that requirement would
+         * let the timeout decide every duck and make the requirement
+         * decoration.
          *
-         * Lengthening the cooldown instead was the obvious alternative and it
-         * is the wrong one: the real barge-in arrived 2.5 s after a false
-         * duck, so a cooldown long enough to stop the pulsing would have
-         * thrown away the question it exists to hear.
+         * The pulsing this was briefly narrowed to 350 ms to avoid is
+         * addressed where it belongs instead — `EchoGate.SUSPECT_FACTOR`, so
+         * the duck fires less often rather than ending before it can conclude
+         * anything. Lengthening the cooldown is not an option: the one real
+         * barge-in arrived 2.5 s after a false duck.
          */
-        private const val DUCK_WINDOW_MS = 350L
+        private const val DUCK_WINDOW_MS = 600L
         private const val DUCK_POLL_MS = 20L
 
         /** Shortest gap between two ducks, so a turn is not delivered in a stutter. */

@@ -351,7 +351,25 @@ class EchoGate(
         }
 
         loudFrames++
-        if (loudFrames < bargeInFrames) return false
+        // A ducked speaker needs the sound to last, not just to be loud.
+        //
+        // Dropping the output 16 dB in one step costs the platform's echo
+        // canceller its model of the room, and for about 200 ms afterwards it
+        // cancels almost nothing: the microphone carries *more* echo than
+        // before the duck, not less. Measured on the device — 7108 of
+        // speech-band energy where that room's leak at full volume had never
+        // exceeded 4440 — and it lands exactly where the bar is lowest,
+        // because the reference has already fallen. Four interruptions the
+        // angler did not make came from that transient, every one of them
+        // 107-182 ms after the duck.
+        //
+        // Level cannot separate a collapsing canceller from a voice; duration
+        // can. The transient is over inside 300 ms and a sentence is not, so
+        // while the speaker is held down the gate wants the frames to keep
+        // coming for [DUCKED_BARGE_IN_FRAMES]. It costs a third of a second of
+        // detection latency on a path that had none at all before.
+        val needed = if (scale < 1.0) DUCKED_BARGE_IN_FRAMES else bargeInFrames
+        if (loudFrames < needed) return false
 
         bargeInOpen = true
         Log2.i(
@@ -495,16 +513,29 @@ class EchoGate(
          * Margin over the predicted leak before the gate gets suspicious
          * enough to duck the speaker.
          *
-         * Only just above the prediction, because the duck is cheap and
-         * missing a question is not. Everything that protects the assistant
-         * from its own voice still sits in the accept test; this number only
-         * decides when to take the speaker out of the microphone's way so
-         * that test can be answered honestly.
+         * Everything that protects the assistant from its own voice sits in
+         * the accept test; this number only decides when to take the speaker
+         * out of the microphone's way so that test can be answered honestly.
+         *
+         * It was 1.2, just above the prediction, on the grounds that a duck is
+         * cheap. It is cheap but it is not free: at 1.2 the assistant's own
+         * leak tripped it roughly every two seconds — measured ratios of 1.45
+         * to 2.3 against the prediction — and a greeting delivered with a dip
+         * in it every two seconds is heard as pulsing. The real cases measured
+         * 4.0 and 11.9 times their prediction, so two leaves them intact and
+         * removes most of the rest.
          */
-        const val SUSPECT_FACTOR = 1.2
+        const val SUSPECT_FACTOR = 2.0
 
         /** Consecutive suspect frames before ducking. 100 ms at 20 ms a frame. */
         const val SUSPECT_FRAMES = 5
+
+        /**
+         * Consecutive qualifying frames before a barge-in is accepted *while
+         * the speaker is ducked*: 400 ms, which is longer than the echo
+         * canceller's recovery and far shorter than a spoken question.
+         */
+        const val DUCKED_BARGE_IN_FRAMES = 20
 
         /**
          * Absolute floor. Everything must clear this, so room tone, wind and
