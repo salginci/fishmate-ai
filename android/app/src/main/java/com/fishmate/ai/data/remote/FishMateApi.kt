@@ -68,14 +68,6 @@ interface FishMateApi {
     @DELETE("api/v1/tackle/{id}")
     suspend fun deleteTackle(@Path("id") id: String): Response<Unit>
 
-    @GET("api/v1/tackle/templates")
-    suspend fun tackleTemplates(): Response<TackleTemplatesResponse>
-
-    @POST("api/v1/tackle/templates")
-    suspend fun applyTackleTemplates(
-        @Query("keys") keys: List<String>,
-    ): Response<List<TackleItemDto>>
-
     // ---- sessions ---------------------------------------------------------
     @POST("api/v1/sessions")
     suspend fun startSession(@Body body: SessionStartRequest): Response<SessionDetailDto>

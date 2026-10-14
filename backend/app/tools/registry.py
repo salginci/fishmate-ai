@@ -310,6 +310,68 @@ async def _h_tackle(ctx: ToolContext, args: sch.GetTackleInventoryArgs) -> dict[
     }
 
 
+async def _h_add_tackle(ctx: ToolContext, args: sch.AddTackleArgs) -> dict[str, Any]:
+    """Write down what the angler just said they own.
+
+    The missing half of the inventory. `get_tackle_inventory` answers an empty
+    bag with "ask them what they have", and the asking worked — but the answer
+    had nowhere to go, so the next session asked again, and the one after that.
+    Spoken inventory is the only kind an angler standing on rocks with a rod in
+    one hand will ever give.
+
+    Written with `ai_identified`, which is not a confidence score but a
+    provenance flag the app already understands: the item shows up needing
+    confirmation, and any edit in the Tackle screen clears it. So a
+    misheard "çin kurdu" is a wrong row the user can fix, never a silent
+    invention presented as their own gear.
+
+    Duplicates by name are returned rather than re-created, because an angler
+    mentioning the same lure twice in one conversation is normal and two of
+    them in the inventory would double its weight in every recommendation.
+    """
+    existing = await tackle_repo.list_for_user(ctx.db, ctx.user_id, include_inactive=True)
+    name = args.name.strip()
+    match = next((i for i in existing if i.name.casefold() == name.casefold()), None)
+    if match is not None:
+        return {
+            "tackle_id": match.id,
+            "name": match.name,
+            "category": match.category,
+            "already_known": True,
+            "instruction_to_model": (
+                "Already in their inventory. Acknowledge in a few words and move on; "
+                "do not announce that you saved it again."
+            ),
+        }
+
+    item = await tackle_repo.create(
+        ctx.db,
+        ctx.user_id,
+        category=args.category,
+        name=name,
+        brand=args.brand,
+        weight_min_g=args.weight_min_g,
+        weight_max_g=args.weight_max_g,
+        length_cm=args.length_cm,
+        line_rating=args.line_rating,
+        colour=args.colour,
+        notes=args.notes,
+        ai_identified=True,
+    )
+    return {
+        "tackle_id": item.id,
+        "name": item.name,
+        "category": item.category,
+        "needs_user_confirmation": True,
+        "instruction_to_model": (
+            "Saved. Say you noted it in one short clause and carry on with the "
+            "conversation — this is bookkeeping, not news. It is recorded as coming "
+            "from you, so if you were unsure what they said, ask them to repeat it "
+            "rather than guessing."
+        ),
+    }
+
+
 async def _h_recent_catches(ctx: ToolContext, args: sch.GetRecentCatchesArgs) -> dict[str, Any]:
     digest = await get_memory_service().catch_digest(
         ctx.db,
@@ -595,6 +657,13 @@ class FishingToolRegistry:
                 decl.GET_TACKLE_INVENTORY,
                 sch.GetTackleInventoryArgs,
                 _h_tackle,
+            ),
+            ToolSpec(
+                "add_tackle",
+                decl.ADD_TACKLE,
+                sch.AddTackleArgs,
+                _h_add_tackle,
+                mutates=True,
             ),
             ToolSpec(
                 "get_recent_catches",

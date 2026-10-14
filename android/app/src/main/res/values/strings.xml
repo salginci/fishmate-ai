@@ -91,9 +91,8 @@
 
     <!-- Tackle -->
     <string name="tackle_empty_title">Your tackle box is empty</string>
-    <string name="tackle_empty_body">Add what you actually carry. The assistant only recommends gear you own.</string>
+    <string name="tackle_empty_body">Add what you actually carry, or just tell the assistant in Fishing Mode and it will note it here. It only recommends gear you own.</string>
     <string name="tackle_add">Add item</string>
-    <string name="tackle_use_templates">Add a starter set</string>
     <string name="tackle_needs_confirmation">Confirm this</string>
 
     <!-- Catches -->

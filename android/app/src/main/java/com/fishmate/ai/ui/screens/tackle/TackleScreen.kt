@@ -52,11 +52,9 @@ import com.fishmate.ai.ui.components.SectionHeader
 @Composable
 fun TackleScreen(viewModel: TackleViewModel = hiltViewModel()) {
     val grouped by viewModel.grouped.collectAsStateWithLifecycle()
-    val templates by viewModel.templates.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
 
     var showAdd by remember { mutableStateOf(false) }
-    var showTemplates by remember { mutableStateOf(false) }
 
     Scaffold(
         floatingActionButton = {
@@ -69,12 +67,18 @@ fun TackleScreen(viewModel: TackleViewModel = hiltViewModel()) {
     ) { padding ->
         Box(modifier = Modifier.fillMaxSize().padding(padding)) {
             if (grouped.isEmpty()) {
+                // No starter-set action here any more. A tap used to fill the
+                // box with a template kit — rod, reel, jigheads, a minnow —
+                // and from then on every recommendation read an inventory
+                // describing gear the angler had never owned. An empty box is
+                // the honest state, and it is the one that makes the
+                // assistant ask.
                 EmptyState(
                     icon = Icons.Default.Backpack,
                     title = stringResource(R.string.tackle_empty_title),
                     body = stringResource(R.string.tackle_empty_body),
-                    actionLabel = stringResource(R.string.tackle_use_templates),
-                    onAction = { showTemplates = true },
+                    actionLabel = stringResource(R.string.tackle_add),
+                    onAction = { showAdd = true },
                     modifier = Modifier.align(Alignment.Center),
                 )
             } else {
@@ -117,14 +121,6 @@ fun TackleScreen(viewModel: TackleViewModel = hiltViewModel()) {
                             }
                         }
                     }
-                    if (templates.isNotEmpty()) {
-                        item {
-                            TextButton(
-                                onClick = { showTemplates = true },
-                                modifier = Modifier.padding(horizontal = 16.dp),
-                            ) { Text(stringResource(R.string.tackle_use_templates)) }
-                        }
-                    }
                 }
             }
         }
@@ -140,16 +136,6 @@ fun TackleScreen(viewModel: TackleViewModel = hiltViewModel()) {
         )
     }
 
-    if (showTemplates) {
-        TemplatePickerDialog(
-            templates = templates,
-            onDismiss = { showTemplates = false },
-            onApply = {
-                viewModel.applyTemplates(it)
-                showTemplates = false
-            },
-        )
-    }
 }
 
 @Composable
@@ -283,50 +269,6 @@ private fun AddTackleDialog(onDismiss: () -> Unit, onAdd: (TackleItemCreate) -> 
     )
 }
 
-@Composable
-private fun TemplatePickerDialog(
-    templates: List<com.fishmate.ai.data.remote.dto.TackleTemplateDto>,
-    onDismiss: () -> Unit,
-    onApply: (List<String>) -> Unit,
-) {
-    val selected = remember { mutableStateOf(setOf<String>()) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.tackle_use_templates)) },
-        text = {
-            Column {
-                Text(
-                    text = stringResource(R.string.tackle_empty_body),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(12.dp))
-                templates.forEach { template ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(
-                            checked = template.key in selected.value,
-                            onCheckedChange = { checked ->
-                                selected.value = if (checked) {
-                                    selected.value + template.key
-                                } else {
-                                    selected.value - template.key
-                                }
-                            },
-                        )
-                        Text(text = "${template.label} (${template.itemCount})")
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(
-                enabled = selected.value.isNotEmpty(),
-                onClick = { onApply(selected.value.toList()) },
-            ) { Text(stringResource(R.string.tackle_add)) }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
-}
 
 private val CATEGORIES = listOf(
     "rod", "reel", "lure", "jighead", "soft_plastic", "metal_jig",

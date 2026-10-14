@@ -146,7 +146,7 @@ Unit tests can pin the plumbing but not the behaviour, so `make verify-opening`
 runs the real thing: it sends the exact two turns
 `primeFishingContext` builds, answers tool calls from the real Nominatim and
 Open-Meteo, and asserts the assistant spoke first, named the spot, called
-`get_current_conditions` and never asked where the angler was. It caught two
+`get_current_conditions` and never asked where the angler was. It caught three
 things no unit test could. The English session looked its *own* spot up with
 `find_place` before answering — correct, but a wasted round trip on the one
 turn where the wait is most audible, so both instruction files now say to call
@@ -154,6 +154,20 @@ the conditions tools with no location argument for where the angler already is.
 And the check for the second spot cannot be a phrase match: whether reporting
 conditions or asking which one is right depends on what geocoding returned, so
 the expectation is taken from the resolution, not from the model's wording.
+Third, it caught an English session opening in Turkish — the English
+instruction's one blockquoted example was Turkish, and a sample reply outweighs
+every rule in the file about which language to use.
+
+**The opening does not propose the next move.** It used to end by asking to see
+the water, in the directive and in both instruction files, and that is wrong in
+half of all sessions: the same angler opens this app at the kitchen table to
+plan tomorrow, where there is no water to show and what they want is a list of
+what to take and what they are missing. So the opening proves it knows the
+place, the hour and the conditions, and then stops — their first sentence says
+which situation it is, for free. Inland is the one exception, and it is not a
+proposal: with no water near them there is nothing to say about conditions
+where they stand, so asking where they are headed is what makes the rest
+possible.
 
 **Place names are geocoded, and the ranking is ours.** `find_place` exists
 because "how's the weather at Bostanlı?" used to be answered with "I can't
@@ -281,7 +295,24 @@ Tests that pin all of this: `tests/test_live_tokens.py::TestWireSetupShape`,
 - **AI output is never immutable.** `ai_confidence` + `species_confirmed_by_user`
   on every catch; correcting the species clears the confidence.
 - **Recommend only gear the user owns.** An empty inventory returns an
-  instruction to *ask*, not to invent.
+  instruction to *ask*, not to invent. There used to be a way around that and
+  it had to go: onboarding offered starter kits — LRF, light spin, surf — and
+  one tap wrote a dozen named items, minnow included, into the angler's
+  inventory. From then on `recommend_setup` read a plausible inventory of gear
+  he had never owned and told him to fish a minnow he did not have. A
+  believable inventory is worse than an empty one, because the empty one makes
+  the assistant ask. `add_tackle` is the other half of asking: the question was
+  already being asked, but the answer had nowhere to go, so the next session
+  asked again. It writes with `ai_identified`, which the Tackle screen already
+  renders as "confirm this" and any edit clears — so a misheard item is a row
+  the angler can fix, never an assumption presented as their own gear.
+- **Advice starts from the fish, not the gear** (`# ORDER OF ADVICE` in both
+  instruction files). Which species is realistic here and now, then the ways to
+  catch it as options — bait *and* artificial, named as types so the angler can
+  answer "got that" or "haven't" — then their choice, and only then a specific
+  item, which may come from the inventory tools alone. Naming the lure first
+  and working backwards to a fish is the failure the user reported from a
+  shore: "kafasına göre yönlendirmemeli".
 - Tool argument names stay `snake_case` — they are matched against
   `app/tools/schemas.py` on the way back. The wire converter must not touch
   `parameters.properties`.

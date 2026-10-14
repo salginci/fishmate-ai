@@ -188,23 +188,6 @@ class FishingRepository(
         return apiCall(TAG) { api.deleteTackle(id) }
     }
 
-    suspend fun tackleTemplates(): AppResult<List<TackleTemplateDto>> =
-        apiCall(TAG) { api.tackleTemplates() }.let { result ->
-            when (result) {
-                is AppResult.Ok -> AppResult.Ok(result.value.templates)
-                is AppResult.Err -> result
-            }
-        }
-
-    suspend fun applyTackleTemplates(keys: List<String>): AppResult<Unit> =
-        when (val result = apiCall(TAG) { api.applyTackleTemplates(keys) }) {
-            is AppResult.Ok -> {
-                tackleDao.upsert(result.value.map { it.toEntity() })
-                AppResult.Ok(Unit)
-            }
-            is AppResult.Err -> result
-        }
-
     // ---- sessions ---------------------------------------------------------
     suspend fun startSession(body: SessionStartRequest): AppResult<String> =
         when (val result = apiCall(TAG) { api.startSession(body) }) {

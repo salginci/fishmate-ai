@@ -79,9 +79,8 @@
     <string name="perm_skip">Şimdi değil</string>
 
     <string name="tackle_empty_title">Takım çantan boş</string>
-    <string name="tackle_empty_body">Yanında gerçekten ne varsa ekle. Sadece sahip olduğun takımı öneririm.</string>
+    <string name="tackle_empty_body">Yanında gerçekten ne varsa ekle — ya da av modunda söyle, buraya kendisi yazar. Sadece sahip olduğun takımı öneririm.</string>
     <string name="tackle_add">Ekle</string>
-    <string name="tackle_use_templates">Hazır set ekle</string>
     <string name="tackle_needs_confirmation">Bunu onayla</string>
 
     <string name="catch_ai_disclaimer">Yapay zekâ teşhisi yanlış olabilir. Türü değiştirebilirsin.</string>

@@ -785,9 +785,19 @@ class FishingModeController(
         // The directive is a separate turn from the facts so the model treats
         // it as an instruction rather than as something to recite.
         //
-        // The closing move depends on where they are: asking an angler sitting
-        // at home twenty kilometres inland to show you the water is the kind
-        // of thing that makes an assistant look like it is reading a script.
+        // What it must NOT do is propose the next move. This used to end with
+        // "ask to see the water", and that is wrong in half of all sessions:
+        // the same angler opens this app at the kitchen table to plan
+        // tomorrow, work out what to take and find out what they are missing.
+        // An opening that proposes an action is definitely wrong in one of the
+        // two cases, and the angler's own first sentence tells us which one it
+        // is for free. So the opening proves it knows the place and the hour,
+        // and then gets out of the way.
+        //
+        // Inland is the one exception, and it is not a proposal: with no water
+        // anywhere near them there is nothing to be said about conditions
+        // where they stand, so asking where they are headed is what makes the
+        // rest of the conversation possible at all.
         val atWater = (brief?.get("sea_state_at_position") as? JsonPrimitive)
             ?.booleanOrNull ?: true
         val directive = if (turkish) {
@@ -796,7 +806,9 @@ class FishingModeController(
                 "çağırıp kısa bir tavır al, sonra " +
                 (
                     if (atWater) {
-                        "suyu göstermesini iste."
+                        "sus ve onun konuşmasını bekle. Ne yapacağını önermiyorsun, " +
+                            "takım adı söylemiyorsun, suyu göstermesini istemiyorsun, " +
+                            "kamerayı açmıyorsun."
                     } else {
                         "sudan uzakta olduğunu söyleyip nerede avlanmayı " +
                             "düşündüğünü sor; suyu göstermesini isteme."
@@ -809,7 +821,9 @@ class FishingModeController(
                 "and give a short opinion, then " +
                 (
                     if (atWater) {
-                        "ask to see the water."
+                        "stop and wait for them. Do not propose what to do, do not " +
+                            "name any tackle, do not ask to see the water and do not " +
+                            "open the camera."
                     } else {
                         "say they are away from the water and ask where they are " +
                             "planning to fish; do not ask to see anything."
@@ -1263,8 +1277,18 @@ class FishingModeController(
          */
         private const val CAMERA_FIRST_FRAME_TIMEOUT_MS = 2_500L
 
-        /** Frames a look waits for before the model is told it can see. */
-        private const val CAMERA_LOOK_FRAMES = 3
+        /**
+         * Frames a look waits for before the model is told it can see.
+         *
+         * Four, not one, and the difference is the angler's arm. When the
+         * model asks to see a rod or a lure box, nobody is pointing the phone
+         * at it yet: the first frame is a pocket or the ground, and a look
+         * built on it reads as a camera that blinked and perceived nothing.
+         * Four frames at [CAMERA_LOOK_FPS] is about two seconds — long enough
+         * to raise a phone, short enough that the model is not silent for an
+         * uncomfortable gap.
+         */
+        private const val CAMERA_LOOK_FRAMES = 4
 
         /**
          * Frame rate while a look is in progress.
@@ -1276,8 +1300,13 @@ class FishingModeController(
          */
         private const val CAMERA_LOOK_FPS = 2.0
 
-        /** Upper bound on that wait, so a stalled camera cannot hang a turn. */
-        private const val CAMERA_LOOK_TIMEOUT_MS = 3_000L
+        /**
+         * Upper bound on that wait, so a stalled camera cannot hang a turn.
+         * Has to clear [CAMERA_LOOK_FRAMES] at [CAMERA_LOOK_FPS] plus CameraX
+         * binding, or the timeout decides every look and the frame count is
+         * decoration.
+         */
+        private const val CAMERA_LOOK_TIMEOUT_MS = 4_500L
 
         /**
          * How long the microphone waits for the greeting to begin.

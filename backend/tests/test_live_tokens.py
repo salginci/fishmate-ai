@@ -100,6 +100,33 @@ class TestLiveConfig:
         assert tr != en
         assert "ROLE" in en
 
+    def test_the_english_instruction_shows_english_replies(self):
+        """A sample reply is the strongest signal in the file about a reply.
+
+        The English instruction carried a Turkish example of the inland
+        opening, and `make verify-opening` caught the consequence: an English
+        session answered "Merhaba Deniz — Bornova'da saat üçü biraz geçiyor".
+        Fish names and quoted user speech stay Turkish on purpose, so this
+        checks the model's own lines only — the blockquotes.
+        """
+        en = build_live_config(_settings(), language="en")["system_instruction"]["parts"][0]["text"]
+        quoted = [line for line in en.splitlines() if line.startswith(">")]
+        assert quoted, "the English instruction should still show examples"
+        # Turkish grammar, not Turkish nouns: çipura and levrek belong in an
+        # English sentence, "düşünüyorsun" does not.
+        turkish_grammar = (
+            "nerede",
+            "düşünüyorsun",
+            "görüyor musun",
+            "istersen",
+            "var mı",
+            "şu an",
+        )
+        for line in quoted:
+            lowered = line.lower()
+            for marker in turkish_grammar:
+                assert marker not in lowered, f"Turkish example in the English file: {line}"
+
     def test_voice_override_applies(self):
         config = build_live_config(_settings(), voice_name="Puck")
         voice = config["speech_config"]["voice_config"]["prebuilt_voice_config"]["voice_name"]

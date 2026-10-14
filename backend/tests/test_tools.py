@@ -168,6 +168,66 @@ class TestToolBehaviour:
         assert result.payload["items"] == []
         assert "Do NOT recommend specific gear" in result.payload["instruction_to_model"]
 
+    async def test_spoken_tackle_is_written_down_and_flagged(self, registered, session_factory):
+        """The other half of asking: the answer has to survive the session.
+
+        `get_tackle_inventory` answers an empty bag by telling the model to
+        ask, and it does ask — but there was nowhere to put the reply, so the
+        next session asked again. An angler holding a rod will only ever give
+        an inventory by speaking it.
+        """
+        async with session_factory() as s:
+            user = await user_repo.get_by_id(s, registered["user"]["id"])
+            result = await get_tool_registry().execute(
+                "add_tackle",
+                {"category": "minnow", "name": "7 cm batan minnow", "weight_min_g": 8},
+                ToolContext(db=s, user=user),
+            )
+            await s.commit()
+        assert result.ok
+        assert result.payload["needs_user_confirmation"] is True
+
+        async with session_factory() as s:
+            user = await user_repo.get_by_id(s, registered["user"]["id"])
+            listed = await get_tool_registry().execute(
+                "get_tackle_inventory", {}, ToolContext(db=s, user=user)
+            )
+        assert [i["name"] for i in listed.payload["items"]] == ["7 cm batan minnow"]
+        # Marked as the model's word, not the angler's, until they confirm it
+        # in the app — so something misheard is a row they can fix rather
+        # than an assumption treated as their own gear.
+        assert listed.payload["items"][0]["needs_user_confirmation"] is True
+
+    async def test_mentioning_the_same_lure_twice_adds_one(self, registered, session_factory):
+        """Two of a thing double its weight in every scorer that reads them."""
+        async with session_factory() as s:
+            user = await user_repo.get_by_id(s, registered["user"]["id"])
+            for _ in range(2):
+                result = await get_tool_registry().execute(
+                    "add_tackle",
+                    {"category": "bait", "name": "Çin kurdu"},
+                    ToolContext(db=s, user=user),
+                )
+                assert result.ok
+            await s.commit()
+            listed = await get_tool_registry().execute(
+                "get_tackle_inventory", {}, ToolContext(db=s, user=user)
+            )
+        assert listed.payload["total"] == 1
+        assert result.payload["already_known"] is True
+
+    async def test_add_tackle_refuses_a_misheard_size(self, registered, session_factory):
+        """A 9 kg lure is a transcription error, and it would poison the scorer."""
+        async with session_factory() as s:
+            user = await user_repo.get_by_id(s, registered["user"]["id"])
+            result = await get_tool_registry().execute(
+                "add_tackle",
+                {"category": "metal_jig", "name": "Jig", "weight_min_g": 9000},
+                ToolContext(db=s, user=user),
+            )
+        assert not result.ok
+        assert result.error_code == "invalid_arguments"
+
     async def test_no_history_tells_model_not_to_invent_catches(self, registered, session_factory):
         async with session_factory() as s:
             user = await user_repo.get_by_id(s, registered["user"]["id"])

@@ -84,7 +84,8 @@ def prime_turns(language: str, at_water: bool = True) -> tuple[str, str]:
             "gümüş kaşık. Detay için araçları kullan; bu özeti kullanıcıya okuma."
         )
         closing = (
-            "suyu göstermesini iste."
+            "sus ve onun konuşmasını bekle. Ne yapacağını önermiyorsun, takım adı "
+            "söylemiyorsun, suyu göstermesini istemiyorsun, kamerayı açmıyorsun."
             if at_water
             else "sudan uzakta olduğunu söyleyip nerede avlanmayı düşündüğünü "
             "sor; suyu göstermesini isteme."
@@ -109,7 +110,8 @@ def prime_turns(language: str, at_water: bool = True) -> tuple[str, str]:
             "this summary out."
         )
         closing = (
-            "ask to see the water."
+            "stop and wait for them. Do not propose what to do, do not name any "
+            "tackle, do not ask to see the water and do not open the camera."
             if at_water
             else "say they are away from the water and ask where they are "
             "planning to fish; do not ask to see anything."
@@ -338,10 +340,49 @@ async def main() -> int:
                 "find_place" not in out["opening_calls"],
             ),
             (
-                # The opening asks to see the water; it must not switch the
-                # camera on by itself, before the angler has said anything.
+                # The opening must not switch the camera on by itself, before
+                # the angler has said anything.
                 "did NOT open the camera",
                 "set_camera" not in out["opening_calls"],
+            ),
+            (
+                # It used to end by asking to see the water, and that was
+                # wrong in half of all sessions: the same angler opens this
+                # app at the kitchen table to plan tomorrow. The opening
+                # proves it knows the place and the weather, then stops, and
+                # the angler's first sentence says which situation it is.
+                "did NOT propose an action or ask to see anything",
+                not any(
+                    p in lowered
+                    for p in (
+                        "göster",
+                        "gösterir misin",
+                        "kamera",
+                        "show me",
+                        "let me see",
+                        "point the camera",
+                        "point your camera",
+                    )
+                ),
+            ),
+            (
+                # Nothing is in this angler's inventory in this run, so any
+                # tackle named here was invented.
+                "did NOT name tackle",
+                not any(
+                    p in lowered
+                    for p in (
+                        "minnow",
+                        "jighead",
+                        "jig head",
+                        "soft plastic",
+                        "silikon",
+                        "kaşık",
+                        "spoon",
+                        "sahte",
+                        "lure",
+                    )
+                ),
             ),
             (
                 "did NOT ask where they are",

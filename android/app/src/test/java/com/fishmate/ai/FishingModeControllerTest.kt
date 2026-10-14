@@ -837,6 +837,24 @@ class FishingModeControllerTest {
             "it must be told not to ask where they are: $primed",
             primed.contains("Do not ask where they are"),
         )
+        // And then it has to get out of the way. The directive used to end
+        // with "ask to see the water", which is wrong in half of all
+        // sessions: the same angler opens this app at home to plan tomorrow,
+        // where there is no water to show. An opening that proposes the next
+        // move is definitely wrong in one of the two cases, and their first
+        // sentence tells us which for free.
+        assertTrue(
+            "it must be told to stop and wait: $primed",
+            primed.contains("stop and wait"),
+        )
+        assertTrue(
+            "the opening must be told not to ask to see the water: $primed",
+            primed.contains("do not ask to see the water"),
+        )
+        assertTrue(
+            "the opening must be told not to name tackle: $primed",
+            primed.contains("do not name any tackle"),
+        )
     }
 
     @Test

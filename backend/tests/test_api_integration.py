@@ -76,26 +76,24 @@ class TestTackle:
         )
         assert response.status_code == 422
 
-    async def test_templates_are_opt_in(self, client, auth_headers):
-        listed = await client.get("/api/v1/tackle/templates", headers=auth_headers)
-        assert listed.status_code == 200
-        keys = [t["key"] for t in listed.json()["templates"]]
-        assert "light_spin" in keys
-        # Nothing added just by looking.
+    async def test_nothing_is_ever_bulk_added(self, client, auth_headers):
+        """There is no starter set, and no endpoint that fills a bag at once.
+
+        There used to be: onboarding offered template kits — LRF, light spin,
+        surf — and a tap added a dozen named items, minnow included. The
+        angler who tapped one then had an inventory describing gear he had
+        never owned, and every recommendation read from it. He was told to
+        fish a minnow on a shore where he had none. A plausible inventory is
+        worse than an empty one, because the empty one makes the assistant
+        ask.
+        """
+        assert (
+            await client.get("/api/v1/tackle/templates", headers=auth_headers)
+        ).status_code == 404
+        assert (
+            await client.post("/api/v1/tackle/templates?keys=lrf", headers=auth_headers)
+        ).status_code in (404, 405)
         assert (await client.get("/api/v1/tackle", headers=auth_headers)).json() == []
-
-        applied = await client.post(
-            "/api/v1/tackle/templates?keys=light_spin&keys=spin", headers=auth_headers
-        )
-        assert applied.status_code == 200
-        assert len(applied.json()) > 5
-
-    async def test_templates_are_idempotent(self, client, auth_headers):
-        await client.post("/api/v1/tackle/templates?keys=lrf", headers=auth_headers)
-        first = len((await client.get("/api/v1/tackle", headers=auth_headers)).json())
-        await client.post("/api/v1/tackle/templates?keys=lrf", headers=auth_headers)
-        second = len((await client.get("/api/v1/tackle", headers=auth_headers)).json())
-        assert first == second
 
     async def test_cannot_read_another_users_tackle(self, client, auth_headers, other_headers):
         created = await client.post(
@@ -324,7 +322,16 @@ class TestHomeAndConditions:
         assert response.status_code == 422
 
     async def test_recommendation_endpoint(self, client, auth_headers):
-        await client.post("/api/v1/tackle/templates?keys=light_spin", headers=auth_headers)
+        # Spelled out item by item, because that is the only way an inventory
+        # is ever filled now.
+        for item in (
+            {"category": "rod", "name": "Light spin 3-15 g", "weight_min_g": 3, "weight_max_g": 15},
+            {"category": "reel", "name": "3000 reel"},
+            {"category": "minnow", "name": "Minnow 7 cm", "weight_min_g": 8, "weight_max_g": 8},
+            {"category": "line", "name": "PE 0.8", "line_rating": "PE 0.8"},
+        ):
+            created = await client.post("/api/v1/tackle", headers=auth_headers, json=item)
+            assert created.status_code == 201
         response = await client.post(
             "/api/v1/recommendation",
             headers=auth_headers,

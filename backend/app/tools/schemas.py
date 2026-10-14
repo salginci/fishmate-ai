@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import datetime as dt
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 _STYLES = ("lrf", "light_spin", "spin", "surf", "bottom", "float")
 _CATEGORIES = (
@@ -91,6 +91,43 @@ class GetTackleInventoryArgs(ToolArgs):
         if v not in _STYLES:
             raise ValueError(f"fishing_style must be one of: {', '.join(_STYLES)}")
         return v
+
+
+class AddTackleArgs(ToolArgs):
+    """One item the user said they own.
+
+    Bounded like [LogCatchArgs]: a 40 m rod or a 9 kg lure is a transcription
+    error, and writing it into the angler's own inventory would quietly poison
+    every recommendation that reads it afterwards.
+    """
+
+    category: str
+    name: str = Field(min_length=1, max_length=120)
+    brand: str | None = Field(default=None, max_length=80)
+    weight_min_g: float | None = Field(default=None, gt=0, le=2_000)
+    weight_max_g: float | None = Field(default=None, gt=0, le=2_000)
+    length_cm: float | None = Field(default=None, gt=0, le=400)
+    line_rating: str | None = Field(default=None, max_length=32)
+    colour: str | None = Field(default=None, max_length=40)
+    notes: str | None = Field(default=None, max_length=1000)
+
+    @field_validator("category")
+    @classmethod
+    def _valid_category(cls, v: str) -> str:
+        v = v.lower()
+        if v not in _CATEGORIES:
+            raise ValueError(f"category must be one of: {', '.join(_CATEGORIES)}")
+        return v
+
+    @model_validator(mode="after")
+    def _ordered_weights(self) -> AddTackleArgs:
+        low, high = self.weight_min_g, self.weight_max_g
+        if low is not None and high is not None and low > high:
+            # Said the other way round ("eight to one grams") rather than
+            # wrong, and a reversed range reads as "no match" to every scorer
+            # that compares against it.
+            self.weight_min_g, self.weight_max_g = high, low
+        return self
 
 
 class GetRecentCatchesArgs(ToolArgs):

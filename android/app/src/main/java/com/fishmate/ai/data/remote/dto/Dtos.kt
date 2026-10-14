@@ -186,18 +186,6 @@ data class TackleItemCreate(
     @SerialName("ai_identified") val aiIdentified: Boolean = false,
 )
 
-@Serializable
-data class TackleTemplatesResponse(
-    @SerialName("templates") val templates: List<TackleTemplateDto>,
-)
-
-@Serializable
-data class TackleTemplateDto(
-    @SerialName("key") val key: String,
-    @SerialName("label") val label: String,
-    @SerialName("item_count") val itemCount: Int,
-)
-
 // ---- sessions -------------------------------------------------------------
 @Serializable
 data class SessionStartRequest(

@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Query, status
+from fastapi import APIRouter, status
 
-from app.deps import CurrentUser, DbSession, user_language
+from app.deps import CurrentUser, DbSession
 from app.repositories import tackle as tackle_repo
 from app.schemas.api import TackleItemCreate, TackleItemResponse, TackleItemUpdate
-from app.services.onboarding import apply_templates, list_templates
 
 router = APIRouter(tags=["tackle"])
 
@@ -37,23 +36,6 @@ async def create_tackle(
     item = await tackle_repo.create(db, user.id, **body.model_dump())
     await db.commit()
     return TackleItemResponse.model_validate(item)
-
-
-@router.get("/tackle/templates")
-async def tackle_templates(user: CurrentUser, language: str | None = None) -> dict:
-    """Starter templates shown during onboarding. Nothing is added until asked."""
-    return {"templates": list_templates(user_language(user, language))}
-
-
-@router.post("/tackle/templates", response_model=list[TackleItemResponse])
-async def add_tackle_templates(
-    user: CurrentUser,
-    db: DbSession,
-    keys: list[str] = Query(default=[], description="Template keys to apply."),
-) -> list[TackleItemResponse]:
-    created = await apply_templates(db, user.id, keys)
-    await db.commit()
-    return [TackleItemResponse.model_validate(i) for i in created]
 
 
 @router.get("/tackle/{item_id}", response_model=TackleItemResponse)

@@ -91,6 +91,23 @@ GET_SUN_TIMES = {
     },
 }
 
+#: The tackle categories, shared by every declaration that names one so the
+#: enum the model sees cannot drift between tools.
+_CATEGORY_ENUM = (
+    "rod",
+    "reel",
+    "line",
+    "leader",
+    "lure",
+    "jighead",
+    "hook",
+    "soft_plastic",
+    "metal_jig",
+    "minnow",
+    "bait",
+    "accessory",
+)
+
 GET_TACKLE_INVENTORY = {
     "name": "get_tackle_inventory",
     "description": (
@@ -104,20 +121,7 @@ GET_TACKLE_INVENTORY = {
             "category": {
                 "type": "STRING",
                 "description": "Optional filter.",
-                "enum": [
-                    "rod",
-                    "reel",
-                    "line",
-                    "leader",
-                    "lure",
-                    "jighead",
-                    "hook",
-                    "soft_plastic",
-                    "metal_jig",
-                    "minnow",
-                    "bait",
-                    "accessory",
-                ],
+                "enum": list(_CATEGORY_ENUM),
             },
             "fishing_style": {
                 "type": "STRING",
@@ -125,6 +129,55 @@ GET_TACKLE_INVENTORY = {
                 "enum": ["lrf", "light_spin", "spin", "surf", "bottom", "float"],
             },
         },
+    },
+}
+
+ADD_TACKLE = {
+    "name": "add_tackle",
+    "description": (
+        "Record a rod, reel, line, leader, hook, lure or bait the user has just told you "
+        "they own, so the next session already knows it and recommendations can use it. "
+        "Call it once per item, only for what they actually said, and only after they said "
+        "it — never from a photo you are unsure of, never from your own suggestion, and "
+        "never to fill a gap. Items added this way are marked as coming from you, and the "
+        "user confirms or corrects them in the app. Say briefly that you noted it."
+    ),
+    "parameters": {
+        "type": "OBJECT",
+        "properties": {
+            "category": {
+                "type": "STRING",
+                "description": "What kind of item it is.",
+                "enum": list(_CATEGORY_ENUM),
+            },
+            "name": {
+                "type": "STRING",
+                "description": (
+                    "What the user called it, in their words, e.g. "
+                    "'7 cm batan minnow', 'çin kurdu', 'LRF kamış 1-8 g'."
+                ),
+            },
+            "brand": {"type": "STRING", "description": "Only if they named one."},
+            "weight_min_g": {
+                "type": "NUMBER",
+                "description": "Grams. For a rod, the bottom of its casting range.",
+            },
+            "weight_max_g": {
+                "type": "NUMBER",
+                "description": "Grams. For a rod, the top of its casting range.",
+            },
+            "length_cm": {"type": "NUMBER", "description": "Centimetres, for a lure or rod."},
+            "line_rating": {
+                "type": "STRING",
+                "description": "As they said it, e.g. 'PE 0.6', '0.26 mm FC'.",
+            },
+            "colour": {"type": "STRING", "description": "Only if they mentioned it."},
+            "notes": {
+                "type": "STRING",
+                "description": "Anything else they said about it, in one short phrase.",
+            },
+        },
+        "required": ["category", "name"],
     },
 }
 
@@ -400,6 +453,7 @@ FUNCTION_DECLARATIONS: list[dict[str, Any]] = [
     GET_CONDITIONS_FORECAST,
     GET_SUN_TIMES,
     GET_TACKLE_INVENTORY,
+    ADD_TACKLE,
     GET_RECENT_CATCHES,
     GET_RECENT_SESSIONS,
     RECOMMEND_SETUP,
