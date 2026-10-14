@@ -29,6 +29,7 @@ from typing import Any
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.config import get_settings  # noqa: E402
+from app.services import species as species_catalogue  # noqa: E402
 from app.services.geocoding import distance_km, get_geocoding_provider  # noqa: E402
 from app.services.geocoding import resolve as geo_resolve  # noqa: E402
 from app.services.live_tokens import build_live_config  # noqa: E402
@@ -232,7 +233,12 @@ async def drain(session, types_mod, language: str, trace: dict[str, Any]) -> dic
     return out
 
 
-async def run(language: str, follow_up: str | None, at_water: bool = True) -> dict[str, Any]:
+async def run(
+    language: str,
+    follow_up: str | None,
+    at_water: bool = True,
+    second: str | None = None,
+) -> dict[str, Any]:
     from google import genai
     from google.genai import types
 
@@ -291,6 +297,24 @@ async def run(language: str, follow_up: str | None, at_water: bool = True) -> di
             result["follow_up_calls"] = calls2
             result["follow_up_trace"] = follow_trace
 
+        if second:
+            # The turn the angler actually opens with on a shore: "right, what
+            # are we doing?" Nothing in it asks to be looked at.
+            await session.send_client_content(
+                turns=[types.Content(role="user", parts=[types.Part(text=second)])],
+                turn_complete=True,
+            )
+            said3: list[str] = []
+            calls3: list[str] = []
+            for _ in range(4):
+                turn = await drain(session, types, language, {})
+                said3.extend(turn["text"])
+                calls3.extend(turn["calls"])
+                if not turn["calls"]:
+                    break
+            result["second"] = "".join(said3).strip()
+            result["second_calls"] = calls3
+
     return result
 
 
@@ -309,13 +333,21 @@ async def main() -> int:
     print(f"{'=' * 72}\n")
 
     failures = 0
-    for language, follow_up in (
-        ("tr", "Kilyos'ta hava nasıl, oradan balık tutulur mu şimdi?"),
-        ("en", "How's the weather over at Çeşme right now?"),
+    for language, follow_up, opener in (
+        (
+            "tr",
+            "Kilyos'ta hava nasıl, oradan balık tutulur mu şimdi?",
+            "Tamam, ne yapalım bugün?",
+        ),
+        (
+            "en",
+            "How's the weather over at Çeşme right now?",
+            "Right, what are we doing today?",
+        ),
     ):
         print(f"{BOLD}[{language}]{RESET} priming two turns, requestReply=true")
         try:
-            out = await run(language, follow_up, at_water=True)
+            out = await run(language, follow_up, at_water=True, second=opener)
         except Exception as exc:  # noqa: BLE001
             print(f"  {RED}session failed: {type(exc).__name__}: {exc}{RESET}\n")
             failures += 1
@@ -403,6 +435,54 @@ async def main() -> int:
             mark = f"{GREEN}PASS{RESET}" if ok else f"{RED}FAIL{RESET}"
             print(f"    {mark}  {label}")
             failures += 0 if ok else 1
+
+        if out.get("second"):
+            # What the angler actually says first on a shore, and the turn
+            # where this went wrong in the field: the assistant opened the
+            # camera twenty seconds after the greeting and never once looked at
+            # the tackle inventory, before the angler had even said what he was
+            # after. Looking is part of the conversation, not a shortcut past
+            # it, so the camera is not an answer to "what are we doing?".
+            print(f"\n  {BOLD}what are we doing{RESET} (tools: {out['second_calls'] or 'none'})")
+            print(f"  {GREEN}“{out['second']}”{RESET}\n")
+            s_low = out["second"].lower()
+            # The order of advice, as the instruction files set it out: the
+            # fish first, the ways to catch it as options, and the choice left
+            # to the angler. Asking what they own belongs *after* they choose a
+            # method, so it is not required here — an earlier version of this
+            # check demanded it at this turn and failed a reply that was doing
+            # exactly the right thing.
+            named_a_fish = any(
+                sp.tr.lower() in s_low
+                or sp.en.lower() in s_low
+                or any(a in s_low for a in sp.aliases)
+                for sp in species_catalogue.CATALOGUE
+            )
+            offered_the_choice = "?" in out["second"] and any(
+                p in s_low
+                for p in (
+                    "hangi",
+                    "ister",
+                    "mi ",
+                    "which",
+                    "do you want",
+                    "would you rather",
+                    "prefer",
+                )
+            )
+            for label, ok in [
+                ("did NOT reach for the camera", "set_camera" not in out["second_calls"]),
+                ("started from the fish", named_a_fish),
+                (
+                    "left the choice to the angler",
+                    offered_the_choice
+                    or "get_tackle_inventory" in out["second_calls"]
+                    or "recommend_setup" in out["second_calls"],
+                ),
+            ]:
+                mark = f"{GREEN}PASS{RESET}" if ok else f"{RED}FAIL{RESET}"
+                print(f"    {mark}  {label}")
+                failures += 0 if ok else 1
 
         if out.get("follow_up"):
             print(f"\n  {BOLD}other spot{RESET} (tools: {out['follow_up_calls'] or 'none'})")
