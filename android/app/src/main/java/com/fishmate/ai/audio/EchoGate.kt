@@ -296,11 +296,25 @@ class EchoGate(
         val voiceLike = speechRatio >= minSpeechRatio
 
         // Suspicion, which is not a decision. See [isSuspectingSpeech].
-        if (voiceLike && rms > maxOf(noiseBar(), estimatedEchoRms * SUSPECT_FACTOR)) {
-            suspectFrames++
-        } else {
-            suspectFrames = 0
-        }
+        //
+        // The turn's own peak is in here, and it is what makes the duck rare.
+        // Against the prediction alone the assistant's leak tripped suspicion
+        // every two seconds, so a greeting spent a quarter of itself dipping;
+        // the prediction is a model and it runs low, while the peak is the
+        // loudest thing this speaker has actually put into this microphone
+        // this turn. A frame below that is unremarkable however the model
+        // feels about it. A frame above it is louder than the speaker has ever
+        // managed here, which is worth 350 ms of dipped volume to find out
+        // about. Checked against the device log: it fires on both questions
+        // that were asked over the assistant (5585 against a peak of 4784,
+        // 5047 against 3948) and on none of the echo samples (3351 against
+        // 3580, 2026 against 3917, 1888 against 4589).
+        val suspectBar = maxOf(
+            noiseBar(),
+            estimatedEchoRms * SUSPECT_FACTOR,
+            turnEchoPeak * scale,
+        )
+        if (voiceLike && rms > suspectBar) suspectFrames++ else suspectFrames = 0
 
         // A periodic line while the assistant is speaking, so this can be
         // tuned from a real shore instead of from a guess. Debug builds only,
