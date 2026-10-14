@@ -12,7 +12,11 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.Dispatchers
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.concurrent.Volatile
 
 /**
@@ -86,6 +90,25 @@ class AudioCapture(
 
     private val echoGate = EchoGate()
 
+    /**
+     * Which capture owns the microphone.
+     *
+     * One [AudioCapture] is shared for the life of the process, so a second
+     * Fishing Mode session reuses this object — and the gate inside it. Two
+     * capture loops running at once were measured on the device: the first
+     * session's loop outlived its collector, the second opened its own
+     * `AudioRecord` on top, and both fed frames into the single [echoGate] at
+     * twice the expected rate. Its calibration counters, its room floor and
+     * its per-turn decay are all per-frame, so every one of them ran at double
+     * speed against two different signals; the gate's own diagnostics gave it
+     * away by printing twice a second instead of once.
+     *
+     * A newer loop claims the microphone by bumping this. An older loop sees
+     * the number has moved and stands down, which is a check it makes itself
+     * rather than something cancellation has to deliver.
+     */
+    private val captureGeneration = AtomicInteger(0)
+
     /** Effects attached to the capture session; released with it. */
     private var echoCanceler: AcousticEchoCanceler? = null
     private var noiseSuppressor: NoiseSuppressor? = null
@@ -111,6 +134,17 @@ class AudioCapture(
         if (minBuffer <= 0) {
             close(AudioCaptureError("This device reported no usable microphone configuration."))
             return@callbackFlow
+        }
+
+        // Claim the microphone, then give whoever held it a moment to put it
+        // down. Opening a second AudioRecord while the first is still reading
+        // is what produced two live captures on the device.
+        val generation = captureGeneration.incrementAndGet()
+        if (record != null) {
+            Log2.w(TAG, "waiting for a previous capture to release the microphone")
+            withTimeoutOrNull(STALE_RELEASE_TIMEOUT_MS) {
+                while (record != null) delay(STALE_RELEASE_POLL_MS)
+            }
         }
         // Over-allocate the device buffer so a scheduling hiccup does not drop
         // samples, while still sending small chunks upstream.
@@ -159,7 +193,20 @@ class AudioCapture(
 
         val buffer = ByteArray(chunkBytes)
         try {
-            while (!isClosedForSend) {
+            // Three exit conditions, because the first two were not enough.
+            //
+            // This loop never suspends: `AudioRecord.read` blocks for 20 ms and
+            // returns. Cancelling the coroutine around a body that never
+            // reaches a suspension point only *marks* it cancelled — nothing
+            // interrupts the read, so the loop has to notice by itself. It was
+            // testing only `isClosedForSend`, and on the device that stayed
+            // false after the collector was cancelled: Fishing Mode stopped,
+            // the microphone kept recording, and the next session added a
+            // second one (see [captureGeneration]). `isActive` is the job's own
+            // state and flips the instant cancel() lands; the generation covers
+            // the case where a newer capture starts before this one has been
+            // cancelled at all.
+            while (isActive && !isClosedForSend && captureGeneration.get() == generation) {
                 val read = recorder.read(buffer, 0, buffer.size)
                 when {
                     read > 0 -> {
@@ -243,6 +290,15 @@ class AudioCapture(
 
     companion object {
         private const val TAG = "AudioCapture"
+
+        /**
+         * How long a new capture waits for the previous one to release the
+         * microphone. A loop that has been told to stand down exits within one
+         * read, so this is generous; waiting forever would hold up a session
+         * for a recorder that will never come back.
+         */
+        private const val STALE_RELEASE_TIMEOUT_MS = 500L
+        private const val STALE_RELEASE_POLL_MS = 10L
     }
 }
 

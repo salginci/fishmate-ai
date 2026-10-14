@@ -258,6 +258,58 @@ class EchoGateTest {
     }
 
     @Test
+    fun `a greeting that opens quietly is not cut off by its own echo`() {
+        // The second measured A35 case, from the log of a greeting that was
+        // flushed 1.2 s after it started. The opening of the utterance is its
+        // quietest part: playback reported 0.03-0.08 throughout, never enough
+        // to calibrate against, so the only measurement the gate ever had was
+        // the warmup window at 1359. The same leak reached 2985 a few seconds
+        // later, cleared a bar of 1359 x 1.8, and the assistant flushed its own
+        // sentence and dropped into Listening without having said anything.
+        val gate = EchoGate()
+        repeat(200) { gate.accepts(frame(2), 640, speaking = false, reference = 0f) }
+
+        // 1359 and 2985 of speech-band RMS, as sine amplitudes.
+        gate.feed(amplitude = 2130, times = EchoGate.WARMUP_FRAMES, speaking = true, reference = 0.05f)
+        val passed = gate.feed(amplitude = 4690, times = 80, speaking = true, reference = 0.05f)
+
+        assertTrue("the greeting interrupted itself on $passed frames", passed == 0)
+        assertFalse(gate.isBargeInOpen)
+    }
+
+    @Test
+    fun `a frame quieter than the leak predicted for it stays shut`() {
+        // The third A35 case: at 14:34:58 the gate accepted a frame of 4433
+        // against a bar of 3842 while its own estimate of the leak for that
+        // same frame was 5915. It had measured the gain correctly and then
+        // ignored it, because the bar was built only from the loudest frame
+        // seen so far — which had decayed.
+        val gate = EchoGate()
+        repeat(200) { gate.accepts(frame(2), 640, speaking = false, reference = 0f) }
+
+        // Learn the room at a moderate playback level.
+        gate.feed(
+            amplitude = 3000,
+            times = EchoGate.WARMUP_FRAMES + EchoGate.CALIBRATION_FRAMES + 20,
+            speaking = true,
+            reference = 0.3f,
+        )
+
+        // Now the assistant gets loud. Three times the reference is about
+        // three times the leak in the same room, and the gate has to apply
+        // that even though it has never seen a frame this loud.
+        val passed = gate.feed(
+            amplitude = 7000,
+            times = EchoGate.BARGE_IN_FRAMES + 4,
+            speaking = true,
+            reference = 0.9f,
+        )
+
+        assertTrue("echo louder than anything measured was forwarded ($passed frames)", passed == 0)
+        assertFalse(gate.isBargeInOpen)
+    }
+
+    @Test
     fun `the angler's own voice cannot raise the bar above itself`() {
         // Measured on a Galaxy A35: the residual echo peaked at 3096 and the
         // angler's voice at 4133, but the gate had learned a peak of 4075 —

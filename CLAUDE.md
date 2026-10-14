@@ -179,6 +179,19 @@ WebSockets; the domain knows nothing about Gemini.
 `FishMateError` (backend) convert everything into a user-presentable
 `{code, message}`. That is what makes "no stack traces in the UI" structural.
 
+**The tool path is the critical path of the first sentence.** The model cannot
+speak until a tool call is answered, so anything slow between `toolCall` and
+the response is silence the angler hears. `FusedLocationProvider.lastKnown()`
+asked for a brand new fix on every call with no timeout, and a device log
+measured 17.4 s before the token request and 11.6 s before
+`get_current_conditions` ran — long enough for the greeting watchdog in
+`FishingModeController` to fire twice and open the mic on a model that had
+never been given what it needed to talk. It now serves its own recent answer,
+then the platform's remembered fix, and only then asks for a new one under a
+deadline. Staleness is free here: coordinates are coarsened to ~1 km and sea
+state comes off a ~9 km grid. Treat a watchdog firing as a symptom and look
+for what is holding the tool loop.
+
 **Offline-first:** reads come from Room, writes go to Room then the network,
 and failed writes queue in `pending_ops` for `SyncManager` (drains oldest-first,
 stops at first failure so ordering holds).
@@ -218,6 +231,21 @@ stops at first failure so ordering holds).
   gates the mic against a measured echo floor on speaker only. Do not "fix" it
   by muting during playback — that removes barge-in. Thresholds are pinned by
   `EchoGateTest`; two plausible-looking estimators both failed on-device first.
+  The gate reads two different references and the distinction is load-bearing:
+  the *bar* is built on the held envelope, because a gap between words is not
+  silence, while *evidence* about the leak may only be taken at an instant the
+  speaker is honestly loud. Learning in the gaps is where the angler's own
+  voice gets counted as echo, and three separate measurements show the bar then
+  climbing above the person it exists to hear.
+- **One `AudioCapture` is shared for the process, and so is the gate inside
+  it.** A capture loop that outlives its collector therefore does more than
+  waste the microphone: a second session opens its own `AudioRecord` on top and
+  both feed one `EchoGate`, whose calibration, room floor and per-turn decay
+  are all counted per frame and so all run at double speed against two
+  signals. It happened, and the tell was the gate's own diagnostics printing
+  twice a second. The loop never suspends, so cancellation cannot interrupt it
+  — it has to test `isActive` itself, which is why it also carries a
+  generation.
 - Session ceilings: 15 min audio, **2 min audio+video**, ~10 min per
   connection. Compression + resumption are mandatory, not optimisations.
 

@@ -172,14 +172,28 @@ class EchoGate(
         //
         // The envelope keeps the reference up across those gaps and only
         // falls once playback has genuinely stopped.
-        referenceEnvelope = maxOf(
-            reference.coerceIn(0f, 1f).toDouble(),
-            referenceEnvelope * REFERENCE_RELEASE,
-        )
+        val liveReference = reference.coerceIn(0f, 1f).toDouble()
+        referenceEnvelope = maxOf(liveReference, referenceEnvelope * REFERENCE_RELEASE)
         val ref = referenceEnvelope
         val loudReference = ref >= quietReference
 
-        val calibratable = ref >= CALIBRATION_REFERENCE
+        // Evidence and judgement read different references, and conflating
+        // them is a bug in both directions.
+        //
+        // The *bar* is built on the envelope, because a gap between words is
+        // not silence: the microphone is still carrying the word before it.
+        //
+        // *Evidence* about the leak may only be taken from an instant when the
+        // speaker is honestly loud. A frame in a gap, with the envelope still
+        // held high, is exactly where the angler's own voice lands — and three
+        // separate measurements show what happens when it is counted as echo:
+        // a turn peak of 4075 learned from a voice whose echo peaked at 3096;
+        // a bar that rose from 2558 to 3430 during a reference dip, locking
+        // out the person who spoke; and a quiet-phone case where one shouted
+        // frame in a gap set the predicted leak to the level of the shout and
+        // blocked the rest of it. The envelope is a memory of loudness, which
+        // is the right thing to defend with and the wrong thing to learn from.
+        val calibratable = liveReference >= CALIBRATION_REFERENCE
         // Measure the leak for a moment before judging anything against it.
         // Not conditional on the reference: the reference is what proved
         // unreliable at frame granularity — it reads ~0 while the microphone
@@ -201,23 +215,53 @@ class EchoGate(
             // Counted on loud-reference frames alone, so it costs nothing in
             // the gaps — a barge-in during a pause is still immediate.
             calibratedFrames++
-            if (speechRatio >= minSpeechRatio) echoGain = maxOf(rms / ref, echoGain)
+            // Divided by the live reference, not the envelope: the gain is
+            // what this frame says about the leak, and this frame was taken
+            // at the live level. The envelope is the higher of the two, so
+            // using it would quietly understate the leak.
+            if (speechRatio >= minSpeechRatio) echoGain = maxOf(rms / liveReference, echoGain)
             estimatedEchoRms = echoGain * ref
             loudFrames = 0
             return false
         }
 
         estimatedEchoRms = echoGain * ref
-        // The loudest leak seen so far *this turn*, not the leak predicted for
-        // this instant. Measured on the device: at the moments the reference
-        // said "silent" the microphone was reading 1500-3300 of pure echo in
-        // a room that reads 1 when genuinely idle, so a bar that collapses
-        // whenever the reference dips is a bar that collapses constantly.
+
+        // Two independent estimates of what the assistant is leaking into the
+        // microphone, and the bar respects whichever is higher:
         //
-        // It is per turn because the gate resets when playback stops, so a
-        // quieter reply or a phone moved further away re-measures from
-        // scratch rather than inheriting a stale ceiling.
-        val threshold = maxOf(noiseBar(), turnEchoPeak * bargeInFactor)
+        //  - the loudest leak seen so far *this turn*, which survives the gaps
+        //    between words where the reference reads silent while the room is
+        //    still ringing. Measured on the device: at those moments the
+        //    microphone carried 1500-3300 of pure echo in a room that reads 1
+        //    when genuinely idle, so a bar that follows the reference down is
+        //    a bar that collapses constantly.
+        //  - the leak predicted for *this instant* from the measured gain,
+        //    which is the one that catches a passage louder than anything
+        //    measured so far. On the A35 at 14:34:58 a frame of 4433 was
+        //    accepted against a bar of 3842 while the gate's own prediction
+        //    for that frame was 5915 — it forwarded the assistant's voice as a
+        //    barge-in because nothing consulted the prediction.
+        //
+        // Both are per turn: the gate resets when playback stops, so a quieter
+        // reply or a phone moved further away re-measures from scratch rather
+        // than inheriting a stale ceiling.
+        //
+        // Until a loud-reference frame has taught the gate the leak, the only
+        // measurement on record is the warmup window — 0.3 s taken at whatever
+        // level the utterance *opened* at, which is its quietest part. The leak
+        // then grows with the sentence: on the device a turn that warmed up at
+        // 1359 was leaking 2985 four seconds later, and the 1.8x margin over
+        // the opening let that through 1.2 s into the greeting. So an unmeasured
+        // turn gets the wider margin, which is the one thing that distinguishes
+        // "quiet because it has not started properly yet" from "quiet".
+        val measured = echoGain > 0.0
+        val margin = if (measured) bargeInFactor else UNCALIBRATED_FACTOR
+        val threshold = maxOf(
+            noiseBar(),
+            turnEchoPeak * margin,
+            estimatedEchoRms * bargeInFactor,
+        )
 
         val voiceLike = speechRatio >= minSpeechRatio
 
@@ -246,10 +290,16 @@ class EchoGate(
             // of 4075 when the real echo peaked at 3096, the difference being
             // their voice teaching the gate to ignore them. The same trap as
             // the echo gain, in a second place.
-            if (calibratable) turnEchoPeak = maxOf(rms, turnEchoPeak * gainDecay)
-            else turnEchoPeak *= gainDecay
+            // No decay inside a turn. The peak means "the loudest leak this
+            // turn" and the turn is already bounded — [reset] drops it to zero
+            // the moment playback stops, which is what lets a quieter reply
+            // re-measure. Decaying it as well took 40 % off the bar every
+            // second at 50 frames a second, so a bar built during a loud
+            // passage was gone a second and a half later: that is how 14:34:58
+            // ended up judging a 5915 leak against a bar of 3842.
+            if (calibratable) turnEchoPeak = maxOf(rms, turnEchoPeak)
             if (calibratable && voiceLike) {
-                echoGain = maxOf(rms / ref, echoGain * gainDecay)
+                echoGain = maxOf(rms / liveReference, echoGain * gainDecay)
             }
             loudFrames = 0
             lastRejection = if (!voiceLike) "not-voice" else "below-threshold"
@@ -364,6 +414,20 @@ class EchoGate(
          * number here.
          */
         const val BARGE_IN_FACTOR = 1.8
+
+        /**
+         * Margin over a leak that has only been *glimpsed*.
+         *
+         * Applies until a loud-reference frame has let the gate measure the
+         * room properly. All it has then is the warmup window: 0.3 s of the
+         * utterance's opening, which is its quietest part. The device log of a
+         * cut-off greeting gives the ratio directly — the warmup measured 1359
+         * and the same turn leaked 2985 a few seconds later, so the opening
+         * understated the leak by 2.2x. Three is above that and still finite:
+         * a shout over a greeting that has barely started is a rare way to
+         * interrupt, and the tap is always there.
+         */
+        const val UNCALIBRATED_FACTOR = 3.0
 
         /**
          * Absolute floor. Everything must clear this, so room tone, wind and
