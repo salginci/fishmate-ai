@@ -164,6 +164,9 @@ class FishingModeController(
         // opens, so entering it later would leave both streams off the voice
         // path with nothing cancelling the loudspeaker.
         audioRouting.enterCommunicationMode()
+        audioCapture.manualEffects = audioRouting.manualEffectsEnabled
+        audioCapture.preferredInput = { audioRouting.builtinMic() }
+        audioCapture.sourceOverride = audioRouting.captureSourceOverride()
         audioRouting.startRouteMonitoring()
         // Hands-free from the first second: VOICE_COMMUNICATION would
         // otherwise route to the earpiece and the angler would have to
