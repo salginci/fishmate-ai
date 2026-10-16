@@ -51,11 +51,10 @@ class EchoGateTest {
         times: Int,
         speaking: Boolean,
         reference: Float,
-        outputScale: Float = 1f,
     ): Int {
         var passed = 0
         repeat(times) {
-            if (accepts(frame(amplitude), 640, speaking, reference, outputScale)) passed++
+            if (accepts(frame(amplitude), 640, speaking, reference)) passed++
         }
         return passed
     }
@@ -311,105 +310,42 @@ class EchoGateTest {
     }
 
     @Test
-    fun `a question asked over the assistant is heard once the speaker ducks`() {
+    fun `a question asked into a quiet moment of the assistant is heard`() {
         // The device measurement, replayed with its own numbers. At 15:33:20
         // the angler asked a question while the assistant was talking: the
-        // microphone read 5585 of speech-band energy, the prediction of the
-        // leak for that instant was 470, and the frame was rejected anyway
-        // because the bar still carried the loudest moment of the turn, 8611.
-        // The server never received the question, so it never answered.
+        // microphone read 5585 of speech-band energy, the leak predicted for
+        // that instant was 470, and the frame was rejected anyway because the
+        // bar still carried the loudest moment of the turn, 8611. The server
+        // never received the question, so it never answered.
+        //
+        // The bar is now the prediction, so a loud passage no longer stands in
+        // front of a quiet one, and this is heard at full volume -- which is
+        // the point. The answer to this case used to be ducking the speaker
+        // for 600 ms, and that was audible: a product whose subject is the
+        // Live API cannot dip its own voice to work out whether it is being
+        // spoken to.
         val gate = EchoGate()
         repeat(200) { gate.accepts(frame(2), 640, speaking = false, reference = 0f) }
 
-        // A loud turn, so the bar is high and honestly earned.
+        // A loud turn, so the leak is honestly measured and the bar is earned.
         gate.feed(amplitude = 7000, times = 60, speaking = true, reference = 0.9f)
 
-        // The angler speaks into a dip in the assistant's own speech. Nothing
-        // gets through — that bar is not clearable — but the gate can see that
-        // this is far louder than the leak it predicts, and says so.
-        val blocked = gate.feed(amplitude = 9600, times = 10, speaking = true, reference = 0.04f)
-        assertTrue("that bar should not be clearable, got $blocked", blocked == 0)
-        assertTrue("the gate must at least suspect speech", gate.isSuspectingSpeech)
-
-        // The controller ducks. Two things change together, as they do on the
-        // device: the reference falls because `outputLevel` is scaled by the
-        // duck, and the gate is told the output is being held down — which is
-        // what licenses it to set aside a bar measured at full volume. The
-        // angler's own voice does not change at all.
-        val duck = com.fishmate.ai.audio.AudioPlayer.DUCK_FACTOR
+        // The angler speaks into a dip in the assistant's own speech. Half a
+        // second of it, because the reference is a *memory* of loudness and
+        // has to fade before the dip counts as one: about six frames at
+        // [EchoGate.REFERENCE_RELEASE], then [EchoGate.BARGE_IN_FRAMES] of
+        // speech on top. That is the cost of covering the room's ring-out,
+        // roughly a quarter of a second before the assistant stops, and it is
+        // recorded here rather than discovered on a shore.
         val passed = gate.feed(
             amplitude = 9600,
-            times = EchoGate.DUCKED_BARGE_IN_FRAMES + 4,
+            times = 30,
             speaking = true,
-            reference = 0.04f * duck,
-            outputScale = duck,
+            reference = 0.04f,
         )
 
-        assertTrue("the angler must be heard once the speaker is out of the way", passed > 0)
+        assertTrue("the question must be heard without touching the volume", passed > 0)
         assertTrue(gate.isBargeInOpen)
-    }
-
-    @Test
-    fun `the echo canceller losing its model when the speaker ducks is not a barge-in`() {
-        // Four interruptions an angler did not make. Dropping the output 16 dB
-        // in one step costs the platform's echo canceller its model of the
-        // room, and for about 150 ms it cancels almost nothing: the microphone
-        // carried 7108 where that room's leak at full volume had never passed
-        // 4440. It arrives exactly where the bar is lowest, because the
-        // reference has already fallen with the volume.
-        //
-        // Level cannot tell that from a voice. Duration can: the transient is
-        // gone inside 300 ms, which is why a ducked speaker asks for 400 ms of
-        // continuous speech.
-        val gate = EchoGate()
-        repeat(200) { gate.accepts(frame(2), 640, speaking = false, reference = 0f) }
-        gate.feed(amplitude = 7000, times = 60, speaking = true, reference = 0.9f)
-
-        val duck = com.fishmate.ai.audio.AudioPlayer.DUCK_FACTOR
-        // 7108 of speech-band RMS, for the 150 ms the canceller takes to
-        // recover, and then it is over.
-        val burst = gate.feed(
-            amplitude = 12_250,
-            times = 8,
-            speaking = true,
-            reference = 0.9f * duck,
-            outputScale = duck,
-        )
-        assertTrue("the canceller's recovery was forwarded as a barge-in", burst == 0)
-        assertFalse(gate.isBargeInOpen)
-
-        // The leak settles to what a ducked speaker actually puts in the room
-        // — 268 to 689 on the device — and nothing opens.
-        val settled = gate.feed(
-            amplitude = 900,
-            times = 60,
-            speaking = true,
-            reference = 0.9f * duck,
-            outputScale = duck,
-        )
-        assertTrue("ducked echo must stay out, got $settled frames", settled == 0)
-        assertFalse(gate.isBargeInOpen)
-    }
-
-    @Test
-    fun `ducking does not let the assistant interrupt itself`() {
-        // The leak drops with the volume. A duck triggered by echo must leave
-        // the gate exactly where it was, or the duck becomes a new way to cut
-        // the greeting short.
-        val gate = EchoGate()
-        repeat(200) { gate.accepts(frame(2), 640, speaking = false, reference = 0f) }
-        gate.feed(amplitude = 7000, times = 60, speaking = true, reference = 0.9f)
-
-        val duck = com.fishmate.ai.audio.AudioPlayer.DUCK_FACTOR
-        val passed = gate.feed(
-            amplitude = (7000 * duck).toInt(),
-            times = 100,
-            speaking = true,
-            reference = 0.9f * duck,
-            outputScale = duck,
-        )
-        assertTrue("the duck forwarded the assistant's own echo on $passed frames", passed == 0)
-        assertFalse(gate.isBargeInOpen)
     }
 
     @Test

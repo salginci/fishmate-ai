@@ -273,29 +273,45 @@ stops at first failure so ordering holds).
   gates the mic against a measured echo floor on speaker only. Do not "fix" it
   by muting during playback — that removes barge-in. Thresholds are pinned by
   `EchoGateTest`; two plausible-looking estimators both failed on-device first.
-- **Barge-in on a loudspeaker is solved by ducking, not by a threshold.**
-  Three settings of the gate were measured on a Galaxy A35 and each one either
-  cut the assistant off mid-greeting or swallowed a question asked over it:
-  the leak read 1888 against a predicted 818 early in a turn, while a real
-  question read 5585 against a predicted 470 and was rejected by a bar carrying
-  the loudest moment of that turn. The ratios overlap, so no bar separates them.
-  So on the first hint of speech — `EchoGate.isSuspectingSpeech`, which is
-  deliberately weak evidence — the controller drops the output to
-  `AudioPlayer.DUCK_FACTOR` for 600 ms. That changes what is in the air instead
-  of what we believe about it: the leak falls with the volume, the angler does
-  not, and the unchanged accept test finally has a margin. A false duck costs a
-  dip in volume; a missed question costs the conversation, which is the
-  asymmetry that licenses acting early. The duck is passed to the gate
-  explicitly as `outputScale`, never inferred from the reference — a reference
-  cannot tell a ducked speaker from a quiet passage, and inferring it would let
-  the leak in the gaps between words through. Nothing is learned while ducked.
-  Not yet ported to `web/`.
-  The gate reads two different references and the distinction is load-bearing:
-  the *bar* is built on the held envelope, because a gap between words is not
-  silence, while *evidence* about the leak may only be taken at an instant the
-  speaker is honestly loud. Learning in the gaps is where the angler's own
-  voice gets counted as echo, and three separate measurements show the bar then
-  climbing above the person it exists to hear.
+- **The echo gate's hardest problem was a broken reference, not a bad
+  threshold.** The gate explains the microphone by what the speaker is
+  playing, so everything rests on that reference being right, and it was wrong
+  in two ways at once. It reported the level of the frame *currently* leaving
+  the speaker, while the microphone hears what left it a hundred milliseconds
+  ago; and when playback was starved -- which happens constantly, because the
+  server sends a turn as a handful of blobs and the head catches up with the
+  last frame written -- it reported silence while the room was still loud with
+  what had just played. Measured: frames carrying 4000-7000 of leak against a
+  reference of 0.00. Every threshold ever tuned here was tuned against that.
+  So `OutputLevelMeter.referenceAt` answers past the end of what was filed
+  with the most recent window for up to 250 ms, kept separate from `levelAt`,
+  which drives the avatar's mouth and must stay silent when nothing is
+  scheduled; and the gate reads a bounded 240 ms look-back maximum rather than
+  an exponential envelope, which bounds the delay instead of guessing it.
+
+- **The bar follows the speaker, not the loudest thing it has said.** The leak
+  is now a ratio -- microphone RMS per unit of reference -- read as the 90th
+  percentile of the last two seconds, so a quiet passage is judged on what the
+  speaker is doing in it. The absolute turn peak that used to *be* the bar is
+  what rejected a real question at 5585 behind a bar of 8611 while the leak for
+  that instant was 470; it survives only as a floor at `PEAK_FLOOR` of itself,
+  a backstop for when the reference is missing entirely. Verified on a Galaxy
+  A35 at 128 judged frames over 50 s of the assistant speaking into a silent
+  room: zero false interruptions, with the bar resting at 4500-9500 and
+  tracking the reference rather than sitting at the turn's maximum.
+
+- **Ducking is gone, and should not come back.** Dropping the speaker to 15 %
+  for 600 ms on a hint of speech was the answer while no bar could separate
+  the leak from a voice. It worked, and it was audible -- a product whose
+  subject is the Live API cannot dip its own voice to work out whether it is
+  being spoken to, which is what the user said when they heard it. It also
+  cost the platform canceller its model on every step, which produced four
+  interruptions nobody made. With the reference fixed the bar has an honest
+  margin at full volume, so the duck, `AudioPlayer.duckScale`,
+  `EchoGate.isSuspectingSpeech` and the controller's duck window are all
+  deleted. Reintroducing attenuation is a sign the reference has broken again:
+  look there first.
+
 - **One `AudioCapture` is shared for the process, and so is the gate inside
   it.** A capture loop that outlives its collector therefore does more than
   waste the microphone: a second session opens its own `AudioRecord` on top and

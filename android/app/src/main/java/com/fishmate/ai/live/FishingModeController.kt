@@ -119,8 +119,6 @@ class FishingModeController(
      */
     @Volatile
     private var greetingWaiter: CompletableDeferred<Unit>? = null
-    private var duckJob: Job? = null
-    private var duckGuard: Job? = null
     /** Waits out the speaker after the server says it has finished generating. */
     private var drainJob: Job? = null
     private var micJob: Job? = null
@@ -196,12 +194,7 @@ class FishingModeController(
     suspend fun stop() {
         micJob?.cancel(); micJob = null
         audioCapture.speakerLevel = { 0f }
-        audioCapture.speakerScale = { 1f }
         audioCapture.onBargeIn = {}
-        audioCapture.onSpeechSuspected = {}
-        duckJob?.cancel(); duckJob = null
-        duckGuard?.cancel(); duckGuard = null
-        audioPlayer.unduck()
         cameraJob?.cancel(); cameraJob = null
         echoGuardJob?.cancel(); echoGuardJob = null
         routeJob?.cancel(); routeJob = null
@@ -324,10 +317,8 @@ class FishingModeController(
         if (micJob != null) return
         // The far-end reference the gate needs, and the local fast path that
         // stops playback without waiting for the server to agree.
-        audioCapture.speakerLevel = { audioPlayer.outputLevel }
-        audioCapture.speakerScale = { audioPlayer.duckScale }
+        audioCapture.speakerLevel = { audioPlayer.echoReference }
         audioCapture.onBargeIn = { onLocalBargeIn() }
-        audioCapture.onSpeechSuspected = { onSpeechSuspected() }
         micJob = scope.launch {
             audioCapture.chunks()
                 .catch { error ->
@@ -1051,59 +1042,8 @@ class FishingModeController(
      */
     fun interrupt() = onLocalBargeIn()
 
-    /**
-     * Take the speaker out of the microphone's way for a moment.
-     *
-     * The honest answer to a problem thresholds could not solve. On a
-     * loudspeaker the leak and the angler's voice reach the microphone at the
-     * same magnitude, so three different settings of the gate each either cut
-     * the assistant off mid-greeting or swallowed a question asked over it —
-     * the last one measured on the device as a 5585 frame rejected against a
-     * bar of 8611 while the gate's own prediction for that instant was 470.
-     * The server never heard the question, so the angler waited for an answer
-     * that was never coming.
-     *
-     * So on the first hint of speech the output drops for
-     * [DUCK_WINDOW_MS]. That changes what is in the air rather than what we
-     * believe about it: the leak falls with the volume, the angler does not,
-     * and the ordinary accept test — unchanged, still conservative — gets an
-     * honest margin. If it was the assistant's own voice all along the leak
-     * drops too, nothing clears the bar, and the duck lifts. The asymmetry is
-     * what makes this safe to do on weak evidence: a false duck costs a dip in
-     * volume, a missed question costs the conversation.
-     *
-     * One duck per [DUCK_COOLDOWN_MS], because a turn that keeps triggering it
-     * should not be delivered in a stutter.
-     */
-    private fun onSpeechSuspected() {
-        if (duckJob?.isActive == true) return
-        if (duckGuard?.isActive == true) return
-        duckJob = scope.launch {
-            audioPlayer.duck()
-            Log2.i(TAG, "ducking the speaker to listen past it")
-            try {
-                withTimeoutOrNull(DUCK_WINDOW_MS) {
-                    while (!audioCapture.isBargeInOpen && audioPlayer.isAudible) {
-                        delay(DUCK_POLL_MS)
-                    }
-                }
-            } finally {
-                // Not after a barge-in: that path flushes playback and lifts
-                // the duck itself, and restoring the volume here would raise
-                // it on whatever the server sends next, mid-flush.
-                if (!audioCapture.isBargeInOpen) {
-                    audioPlayer.unduck()
-                    Log2.d(TAG, "nothing there; speaker back up")
-                }
-                duckGuard = scope.launch { delay(DUCK_COOLDOWN_MS) }
-            }
-        }
-    }
-
     private fun onLocalBargeIn() {
         scope.launch {
-            duckJob?.cancel()
-            duckJob = null
             drainJob?.cancel()
             drainJob = null
             audioPlayer.flush()
@@ -1313,29 +1253,6 @@ class FishingModeController(
          * back as a fresh interruption.
          */
         private const val ECHO_TAIL_MS = 400L
-
-        /**
-         * How long the speaker stays down while the gate decides.
-         *
-         * Has to outlast what the gate now asks for while ducked:
-         * `EchoGate.DUCKED_BARGE_IN_FRAMES` is 400 ms of continuous speech,
-         * because the 150 ms of inflated echo that follows a volume step was
-         * accepted as a barge-in four times on the device by an angler who was
-         * not speaking at all. A window shorter than that requirement would
-         * let the timeout decide every duck and make the requirement
-         * decoration.
-         *
-         * The pulsing this was briefly narrowed to 350 ms to avoid is
-         * addressed where it belongs instead — `EchoGate.SUSPECT_FACTOR`, so
-         * the duck fires less often rather than ending before it can conclude
-         * anything. Lengthening the cooldown is not an option: the one real
-         * barge-in arrived 2.5 s after a false duck.
-         */
-        private const val DUCK_WINDOW_MS = 600L
-        private const val DUCK_POLL_MS = 20L
-
-        /** Shortest gap between two ducks, so a turn is not delivered in a stutter. */
-        private const val DUCK_COOLDOWN_MS = 1_500L
 
         /** The one tool name the device answers for; see [DEVICE_TOOLS]. */
         internal const val TOOL_SET_CAMERA = "set_camera"

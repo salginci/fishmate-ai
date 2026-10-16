@@ -93,63 +93,20 @@ class AudioPlayer(
             val current = track ?: return 0f
             // The head position is an unsigned frame counter in an Int.
             val head = current.playbackHeadPosition.toLong() and 0xFFFF_FFFFL
-            // Scaled by the duck, because the meter measures the PCM we wrote
-            // and the duck happens in the hardware after it. The echo gate
-            // uses this as its model of what the room is hearing; leaving the
-            // duck out of it would have the gate defend against an echo four
-            // times louder than the one actually in the air, which is exactly
-            // the masking the duck exists to remove.
-            return meter.levelAt(head) * duckFactor
+            return meter.levelAt(head)
         }
 
     /**
-     * How loud the speaker is relative to the audio we handed it, 0..1.
-     *
-     * The answer to a problem no threshold can solve. On a loudspeaker the
-     * angler's voice and the leak from the speaker arrive at the microphone at
-     * the same magnitude, so a level test cannot tell "he is talking over me"
-     * from "that is my own voice coming back" — measured three times on a
-     * Galaxy A35, and each setting that heard the angler also cut the
-     * assistant off mid-greeting.
-     *
-     * So instead of guessing harder, we change what is in the air: on the
-     * first hint of speech the output drops to [DUCK_FACTOR] for a moment. The
-     * leak drops with it, the angler (if there is one) does not, and the
-     * ordinary barge-in test then has an honest margin to work with. A false
-     * alarm costs a brief dip in volume rather than a lost sentence, which is
-     * the asymmetry that makes this safe to act on early.
+     * What the room is hearing, for the echo gate -- see
+     * [OutputLevelMeter.referenceAt]. Distinct from [outputLevel], which drives
+     * the avatar and must stay silent when nothing is scheduled.
      */
-    @Volatile
-    private var duckFactor: Float = 1f
-
-    val isDucked: Boolean get() = duckFactor < 1f
-
-    /**
-     * The attenuation currently applied in hardware, 0..1.
-     *
-     * Handed to the echo gate separately from the level, because the two
-     * answer different questions. The level says how loud the waveform is; a
-     * quiet passage and a ducked speaker look identical there. This says the
-     * output is being held down by a known factor, which is the one thing that
-     * licenses the gate to set aside a bar it measured at full volume.
-     */
-    val duckScale: Float get() = duckFactor
-
-    /** Drop the output so the microphone can hear past it. */
-    fun duck(factor: Float = DUCK_FACTOR) {
-        val clamped = factor.coerceIn(0f, 1f)
-        duckFactor = clamped
-        runCatching { track?.setVolume(clamped) }
-            .onFailure { Log2.w(TAG, "duck failed", it) }
-    }
-
-    /** Back to full volume. Safe to call when not ducked. */
-    fun unduck() {
-        if (duckFactor >= 1f) return
-        duckFactor = 1f
-        runCatching { track?.setVolume(1f) }
-            .onFailure { Log2.w(TAG, "unduck failed", it) }
-    }
+    val echoReference: Float
+        get() {
+            val current = track ?: return 0f
+            val head = current.playbackHeadPosition.toLong() and 0xFFFF_FFFFL
+            return meter.referenceAt(head)
+        }
 
     /**
      * True while the speaker is still producing sound.
@@ -205,7 +162,6 @@ class AudioPlayer(
         }
         track = created
         framesWritten = 0L
-        duckFactor = 1f
         meter.reset()
         created.play()
         startPump()
@@ -304,9 +260,6 @@ class AudioPlayer(
         framesWritten = 0L
         meter.reset()
         isPlaying = false
-        // The duck belongs to the turn being interrupted. Carrying it into the
-        // next one would answer the angler at a sixth of the volume.
-        unduck()
         Log2.d(TAG, "playback flushed (interruption)")
     }
 
@@ -339,7 +292,6 @@ class AudioPlayer(
          * the microphone reads a few hundred, and far short of silence, so a
          * false alarm is heard as a dip rather than as a gap.
          */
-        const val DUCK_FACTOR = 0.15f
 
 
         /** 16-bit mono. */

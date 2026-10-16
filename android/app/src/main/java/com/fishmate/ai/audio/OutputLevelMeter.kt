@@ -91,6 +91,8 @@ class OutputLevelMeter(
      *
      * Returns 0 for a frame position nothing was recorded for, which covers
      * both "not speaking yet" and "the ring has already wrapped past it".
+     * This is what drives the avatar's mouth, which must not move to audio
+     * that is not there.
      */
     fun levelAt(playbackFrame: Long): Float {
         for (slot in levels.indices) {
@@ -99,6 +101,46 @@ class OutputLevelMeter(
             if (playbackFrame >= start && playbackFrame < start + frameCounts[slot]) {
                 return levels[slot]
             }
+        }
+        return 0f
+    }
+
+    /**
+     * The same measurement, answered for the echo gate instead of the mouth.
+     *
+     * Where [levelAt] asks "what is playing at this frame", this asks "what is
+     * in the air", and past the end of what was filed it answers with the most
+     * recent window for up to [STALE_FRAMES] rather than with silence.
+     *
+     * The distinction is not pedantry. The server sends a turn as a handful of
+     * blobs, so playback is repeatedly starved for a moment: the head catches
+     * up with the last frame written -- logged on the device as
+     * `written=602641 head=602641` -- and asks about a frame just past
+     * everything filed. Answering 0 there tells the gate the speaker is silent
+     * at the exact moments the room is loudest with what it played a moment
+     * ago. Measured: 4000-7000 of leak against a reference of 0.00, read as
+     * someone talking, three times in one session.
+     *
+     * Bounded, because a stale level held indefinitely would have the gate
+     * defending against an echo that died away long ago.
+     */
+    fun referenceAt(playbackFrame: Long): Float {
+        var bestStart = Long.MIN_VALUE
+        var bestLevel = 0f
+        var bestEnd = 0L
+        for (slot in levels.indices) {
+            val start = startFrames[slot]
+            if (start == NO_FRAME) continue
+            val end = start + frameCounts[slot]
+            if (playbackFrame >= start && playbackFrame < end) return levels[slot]
+            if (end <= playbackFrame && start > bestStart) {
+                bestStart = start
+                bestLevel = levels[slot]
+                bestEnd = end
+            }
+        }
+        if (bestStart != Long.MIN_VALUE && playbackFrame - bestEnd <= STALE_FRAMES) {
+            return bestLevel
         }
         return 0f
     }
@@ -117,5 +159,12 @@ class OutputLevelMeter(
         private const val SPEECH_GAIN = 3.2
 
         private const val NO_FRAME = Long.MIN_VALUE
+
+        /**
+         * How far past the last window a frame may be and still be answered
+         * with it: 250 ms at 24 kHz, which is about as long as a room keeps
+         * ringing and well under the length of a pause.
+         */
+        private const val STALE_FRAMES = 6_000L
     }
 }
