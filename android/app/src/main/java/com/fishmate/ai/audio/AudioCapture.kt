@@ -4,7 +4,6 @@ import android.annotation.SuppressLint
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
-import android.media.AudioDeviceInfo
 import android.media.audiofx.AcousticEchoCanceler
 import android.media.audiofx.AutomaticGainControl
 import android.media.audiofx.NoiseSuppressor
@@ -140,28 +139,6 @@ class AudioCapture(
     private val captureGeneration = AtomicInteger(0)
 
     /** Effects attached to the capture session; released with it. */
-    /**
-     * Whether to attach AEC/NS to the record session ourselves. Diagnostic:
-     * in MODE_IN_COMMUNICATION the vendor stack already processes this stream,
-     * and stacking ours on top is one candidate for an input that reads zero.
-     */
-    var manualEffects: Boolean = true
-
-    /**
-     * Which input device to ask for, or null to leave the choice to the HAL.
-     * A lambda because only [AudioRouting] can enumerate devices, and the
-     * recorder is created long after this object.
-     */
-    var preferredInput: () -> AudioDeviceInfo? = { null }
-
-    /**
-     * Capture source. Diagnostic: `VOICE_COMMUNICATION` is the one that gets
-     * the vendor voice stack, for good (echo cancellation) and ill (it is
-     * half-duplex on this handset). `MIC` and `VOICE_RECOGNITION` bypass most
-     * of it.
-     */
-    var sourceOverride: Int? = null
-
     private var echoCanceler: AcousticEchoCanceler? = null
     private var noiseSuppressor: NoiseSuppressor? = null
     private var gainControl: AutomaticGainControl? = null
@@ -204,7 +181,7 @@ class AudioCapture(
 
         val recorder = try {
             AudioRecord.Builder()
-                .setAudioSource(sourceOverride ?: MediaRecorder.AudioSource.VOICE_COMMUNICATION)
+                .setAudioSource(MediaRecorder.AudioSource.VOICE_COMMUNICATION)
                 .setAudioFormat(
                     AudioFormat.Builder()
                         .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
@@ -228,10 +205,6 @@ class AudioCapture(
             return@callbackFlow
         }
 
-        preferredInput()?.let { device ->
-            val taken = runCatching { recorder.setPreferredDevice(device) }.getOrDefault(false)
-            Log2.i(TAG, "preferred input ${device.type} requested=$taken")
-        }
         record = recorder
         // VOICE_COMMUNICATION is supposed to engage these, but on many devices
         // they are not attached unless asked for explicitly. Without echo
@@ -245,11 +218,6 @@ class AudioCapture(
             close(AudioCaptureError("The microphone is in use by another app."))
             return@callbackFlow
         }
-        Log2.i(
-            TAG,
-            "routed input=${recorder.routedDevice?.type} " +
-                "source=${sourceOverride ?: MediaRecorder.AudioSource.VOICE_COMMUNICATION}",
-        )
         Log2.i(TAG, "capture started rate=$sampleRateHz chunk=${chunkBytes}B buffer=${bufferBytes}B")
 
         val buffer = ByteArray(chunkBytes)
@@ -323,10 +291,6 @@ class AudioCapture(
     }.flowOn(Dispatchers.IO)
 
     private fun attachEffects(sessionId: Int) {
-        if (!manualEffects) {
-            Log2.w(TAG, "effects: not attached (left to the platform)")
-            return
-        }
         if (AcousticEchoCanceler.isAvailable()) {
             echoCanceler = runCatching {
                 AcousticEchoCanceler.create(sessionId)?.apply { enabled = true }

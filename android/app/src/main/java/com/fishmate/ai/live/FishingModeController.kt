@@ -159,14 +159,6 @@ class FishingModeController(
             }
             return
         }
-        // Before anything opens a track or a recorder: the mode is what arms
-        // the hardware echo canceller, and the HAL picks a path when a stream
-        // opens, so entering it later would leave both streams off the voice
-        // path with nothing cancelling the loudspeaker.
-        audioRouting.enterCommunicationMode()
-        audioCapture.manualEffects = audioRouting.manualEffectsEnabled
-        audioCapture.preferredInput = { audioRouting.builtinMic() }
-        audioCapture.sourceOverride = audioRouting.captureSourceOverride()
         audioRouting.startRouteMonitoring()
         // Hands-free from the first second: VOICE_COMMUNICATION would
         // otherwise route to the earpiece and the angler would have to
@@ -188,7 +180,6 @@ class FishingModeController(
                 it.copy(phase = AssistantPhase.ERROR, errorMessage = issued.error.message)
             }
             audioRouting.clearRouting()
-            audioRouting.leaveCommunicationMode()
             audioRouting.releaseFocus()
             return
         }
@@ -222,7 +213,6 @@ class FishingModeController(
         connectionJob?.cancel(); connectionJob = null
         audioRouting.clearRouting()
         audioRouting.stopRouteMonitoring()
-        audioRouting.leaveCommunicationMode()
         audioRouting.releaseFocus()
         cameraSourceProvider()?.release()
         _previewFrame.value = null

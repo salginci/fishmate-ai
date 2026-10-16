@@ -6,10 +6,7 @@ import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
 import android.media.AudioFocusRequest
 import android.media.AudioManager
-import android.media.MediaRecorder
 import android.os.Build
-import android.provider.Settings
-import com.fishmate.ai.BuildConfig
 import com.fishmate.ai.core.Log2
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -43,13 +40,6 @@ class AudioRouting(
 
     private var focusRequest: AudioFocusRequest? = null
     private var deviceCallback: AudioDeviceCallback? = null
-
-    /**
-     * The mode the device was in before this session took it over, or null
-     * while we have not taken it. Also the re-entry guard: route changes call
-     * into here repeatedly and must not stack up saved modes.
-     */
-    private var previousMode: Int? = null
 
     private val focusListener = AudioManager.OnAudioFocusChangeListener { change ->
         when (change) {
@@ -94,59 +84,6 @@ class AudioRouting(
         focusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
         focusRequest = null
         _focusLost.value = false
-    }
-
-    /**
-     * Put the device in its communication mode, which is what actually arms
-     * the hardware echo canceller.
-     *
-     * The platform AEC lives in the audio HAL's voice path and its reference
-     * signal is whatever that path is playing. Recording from
-     * `VOICE_COMMUNICATION` and playing with `USAGE_VOICE_COMMUNICATION` is
-     * not enough on its own: while the device mode stays `MODE_NORMAL` the
-     * output is mixed on the **media** path, so the canceller has nothing to
-     * subtract — and `AcousticEchoCanceler.enabled` still reports `true`,
-     * which is why our own diagnostics claimed the AEC was on through every
-     * measurement of a leak it should have removed. Everything built on top of
-     * that measurement — the echo floor, the per-turn peak, the duck — was
-     * compensating for a canceller that was never running.
-     *
-     * Called before the track and the recorder are created, because the HAL
-     * picks a path when they open: entering the mode afterwards leaves both of
-     * them on the path they already have.
-     */
-    fun enterCommunicationMode() {
-        if (previousMode != null) return
-        if (!communicationModeEnabled) {
-            Log2.w(TAG, "communication mode disabled by debug flag")
-            return
-        }
-        val before = audioManager.mode
-        val applied = runCatching {
-            audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
-        }.isSuccess
-        if (!applied) {
-            Log2.w(TAG, "could not enter communication mode; the AEC has no reference")
-            return
-        }
-        previousMode = before
-        // The volume is logged because communication mode moves the
-        // loudspeaker onto STREAM_VOICE_CALL, which carries its own level: a
-        // phone whose in-call volume sits low makes the assistant faint, and
-        // that has to be legible in a field log as "quiet", not as "broken".
-        Log2.i(
-            TAG,
-            "audio mode ${modeLabel(before)} -> ${modeLabel(audioManager.mode)} " +
-                "voiceCallVolume=${volumeOf(AudioManager.STREAM_VOICE_CALL)}",
-        )
-    }
-
-    /** Hand the mode back, so a session cannot leave the phone in a call. */
-    fun leaveCommunicationMode() {
-        val restore = previousMode ?: return
-        previousMode = null
-        runCatching { audioManager.mode = restore }
-        Log2.i(TAG, "audio mode restored to ${modeLabel(restore)}")
     }
 
     /** Begin tracking output devices; call when entering Fishing Mode. */
@@ -245,67 +182,6 @@ class AudioRouting(
             }
         }
     }
-
-    /**
-     * Diagnostic switches, debug builds only, flipped with
-     * `adb shell settings put global fishmate_comm_mode 0`.
-     *
-     * The audio path can only be characterised on a real handset -- the
-     * emulator has no loudspeaker leak and no vendor voice processing -- and
-     * each combination otherwise costs a rebuild and a reinstall. Release
-     * builds never read these.
-     */
-    val communicationModeEnabled: Boolean get() = debugFlag("fishmate_comm_mode")
-
-    /**
-     * The main microphone, when we want to override the HAL's choice.
-     *
-     * In communication mode this device binds capture to
-     * `AUDIO_DEVICE_IN_BACK_MIC` -- the mic furthest from the loudspeaker,
-     * which is the sensible pick for echo and a dead one in practice here.
-     */
-    fun builtinMic(): AudioDeviceInfo? {
-        if (!debugFlag("fishmate_preferred_mic")) return null
-        return runCatching {
-            audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS)
-                .firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_MIC }
-        }.getOrNull()
-    }
-
-    /** Whether we attach AEC/NS ourselves, or leave the stream to the HAL. */
-    val manualEffectsEnabled: Boolean get() = debugFlag("fishmate_manual_aec")
-
-    /** 0 = voice communication (default), 1 = mic, 2 = voice recognition. */
-    fun captureSourceOverride(): Int? {
-        if (!BuildConfig.DEBUG) return null
-        val choice = runCatching {
-            Settings.Global.getInt(context.contentResolver, "fishmate_mic_source", 0)
-        }.getOrDefault(0)
-        return when (choice) {
-            1 -> MediaRecorder.AudioSource.MIC
-            2 -> MediaRecorder.AudioSource.VOICE_RECOGNITION
-            else -> null
-        }
-    }
-
-    private fun debugFlag(name: String): Boolean {
-        if (!BuildConfig.DEBUG) return true
-        return runCatching {
-            Settings.Global.getInt(context.contentResolver, name, 1) == 1
-        }.getOrDefault(true)
-    }
-
-    private fun modeLabel(mode: Int): String = when (mode) {
-        AudioManager.MODE_NORMAL -> "normal"
-        AudioManager.MODE_RINGTONE -> "ringtone"
-        AudioManager.MODE_IN_CALL -> "in-call"
-        AudioManager.MODE_IN_COMMUNICATION -> "in-communication"
-        else -> "mode-$mode"
-    }
-
-    private fun volumeOf(stream: Int): String = runCatching {
-        "${audioManager.getStreamVolume(stream)}/${audioManager.getStreamMaxVolume(stream)}"
-    }.getOrDefault("unknown")
 
     private fun deviceLabel(type: Int): String = when (type) {
         AudioDeviceInfo.TYPE_BLUETOOTH_SCO -> "bluetooth"

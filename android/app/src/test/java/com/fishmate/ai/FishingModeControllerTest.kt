@@ -28,7 +28,6 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
-import io.mockk.verifyOrder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
@@ -1178,53 +1177,6 @@ class FishingModeControllerTest {
         assertEquals(AudioRoute.SPEAKER, h.controller.state.value.audioRoute)
         // Changing route must not silence anything.
         assertTrue(h.controller.state.value.handsFree)
-    }
-
-    @Test
-    fun `the device is in communication mode before any stream opens`() = runTest {
-        // This ordering is the hardware echo canceller's whole reason to
-        // work. The AEC runs on the HAL's voice path and cancels what that
-        // path is playing; the path is chosen when a stream opens. Enter the
-        // mode after `audioPlayer.start()` and the track is already on the
-        // media mix, where there is nothing to cancel against -- which is the
-        // state every echo measurement on this project was taken in, while
-        // `AcousticEchoCanceler.enabled` reported true throughout.
-        val h = Harness(credentialsResult = { AppResult.Ok(credentials()) })
-        h.controller.start("tr", false)
-        h.scope.advanceUntilIdle()
-
-        verifyOrder {
-            h.audioRouting.enterCommunicationMode()
-            h.audioRouting.applyHandsFreeRouting()
-            h.audioPlayer.start()
-        }
-    }
-
-    @Test
-    fun `ending fishing mode hands the audio mode back to the system`() = runTest {
-        // Communication mode is the phone's call state: left behind it mutes
-        // notifications and routes other apps oddly until the next reboot.
-        val h = Harness(credentialsResult = { AppResult.Ok(credentials()) })
-        h.controller.start("tr", false)
-        h.scope.advanceUntilIdle()
-
-        h.controller.stop()
-        h.scope.advanceUntilIdle()
-
-        verify { h.audioRouting.leaveCommunicationMode() }
-    }
-
-    @Test
-    fun `a failed start hands the audio mode back too`() = runTest {
-        // The mode is taken before the token request, so the path that gives
-        // up on a missing token is the one most likely to leak it.
-        val error = com.fishmate.ai.core.AppError("live_token_unavailable", "No token.")
-        val h = Harness(credentialsResult = { AppResult.Err(error) })
-        h.controller.start("tr", false)
-        h.scope.advanceUntilIdle()
-
-        assertEquals(AssistantPhase.ERROR, h.controller.state.value.phase)
-        verify { h.audioRouting.leaveCommunicationMode() }
     }
 
     @Test
