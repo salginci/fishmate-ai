@@ -350,16 +350,38 @@ class AudioCapture(
                                 suppressWhileSpeaking,
                                 judgedReference,
                             )
-                            if (accepted) {
+                            if (suppressWhileSpeaking && !wasOpen && accepted &&
+                                echoGate.isBargeInOpen
+                            ) {
                                 // The transition, not the state: fire once per
                                 // turn, on the frame the gate latches open.
-                                if (suppressWhileSpeaking && !wasOpen && echoGate.isBargeInOpen) {
-                                    runCatching { onBargeIn() }
-                                }
-                                // Send what was judged: with the echo removed
-                                // the server's own VAD stops hearing the
-                                // assistant, which is what made it interrupt
-                                // itself and language-detect its own output.
+                                // This stops playback locally, a round trip
+                                // before the server's own interruption lands.
+                                runCatching { onBargeIn() }
+                            }
+
+                            // Barge-in is the server's decision, not ours.
+                            //
+                            // The Live API runs voice activity detection on
+                            // what it is sent and cancels the turn the moment
+                            // it hears speech -- `activityHandling` is
+                            // START_OF_ACTIVITY_INTERRUPTS and the backend sets
+                            // it explicitly. None of that can fire on audio it
+                            // never receives, and until now the gate withheld
+                            // the microphone for the whole of the assistant's
+                            // turn: the one component in this system actually
+                            // built to recognise speech was never shown any.
+                            // We were doing its job locally with a level
+                            // threshold, which is what every measurement here
+                            // has been failing to make work.
+                            //
+                            // So the gate no longer decides what the server
+                            // hears. It decides when to stop playback early,
+                            // which is a latency optimisation, and the echo
+                            // canceller is what keeps the assistant's own voice
+                            // out of the stream -- the actual fix for the
+                            // self-interruption this gate was built to prevent.
+                            if (accepted || (suppressWhileSpeaking && aec != null)) {
                                 trySend(judged.copyOf(judgedLength))
                             }
                         }

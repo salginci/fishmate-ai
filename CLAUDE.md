@@ -273,6 +273,25 @@ stops at first failure so ordering holds).
   gates the mic against a measured echo floor on speaker only. Do not "fix" it
   by muting during playback — that removes barge-in. Thresholds are pinned by
   `EchoGateTest`; two plausible-looking estimators both failed on-device first.
+- **Barge-in is the server's decision, and for a long time it was never
+  given the chance to make it.** The Live API runs its own voice activity
+  detection and cancels the turn the moment it hears speech — the backend sets
+  `activityHandling: START_OF_ACTIVITY_INTERRUPTS` explicitly — and none of
+  that can fire on audio it never receives. The gate withheld the microphone
+  for the whole of the assistant's turn, so the one component in this system
+  actually built to recognise speech was never shown any, and we were
+  reimplementing it locally with an RMS threshold. That is the real reason
+  every threshold here failed. The microphone now streams through the
+  assistant's turn and the gate only decides when to stop playback early, which
+  is a latency optimisation. What makes that safe is the pair below: the
+  canceller attenuates the assistant's own voice in what we send, and
+  `gemini_vad_start_sensitivity` is **LOW** rather than the default HIGH, so
+  the residue falls under the detector while the angler — whose voice nothing
+  attenuates — stays over it. Measured on a Galaxy A35 with nobody in the room
+  talking: 41 self-interruptions in 40 s at the default sensitivity, 2 at LOW.
+  END sensitivity stays HIGH, because a false end costs a moment and a false
+  start costs the sentence.
+
 - **The echo canceller is SpeexDSP, vendored and built with the NDK**
   (`app/src/main/cpp`, `FarEndRing`, `SpeexEchoCanceller`). A hand-rolled NLMS
   came first and reached 89 % cancellation against a synthetic room while

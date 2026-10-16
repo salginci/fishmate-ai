@@ -188,6 +188,7 @@ def build_live_config(
                 "disabled": False,
                 "prefix_padding_ms": settings.gemini_vad_prefix_padding_ms,
                 "silence_duration_ms": settings.gemini_vad_silence_ms,
+                "start_of_speech_sensitivity": settings.gemini_vad_start_sensitivity,
             },
             # Explicit rather than defaulted, because barge-in is a product
             # requirement: speech must interrupt the model immediately.

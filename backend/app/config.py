@@ -47,6 +47,17 @@ class Settings(BaseSettings):
     #: Audio kept from just before speech is detected, so the first syllable is
     #: not clipped.
     gemini_vad_prefix_padding_ms: int = 300
+    #: How readily the server's VAD calls incoming audio the start of speech.
+    #:
+    #: LOW, not the default HIGH, and the reason is the loudspeaker. The echo
+    #: canceller attenuates the assistant's own voice in what we send but does
+    #: not remove it, and a HIGH-sensitivity detector calls that residue
+    #: speech: measured on a Galaxy A35 as 41 interruptions in 40 seconds with
+    #: nobody in the room talking. The angler's voice is not attenuated by
+    #: anything, so a less eager detector separates the two where a louder or
+    #: quieter bar could not. END is left HIGH: ending a turn promptly is what
+    #: keeps replies fast, and a false *end* costs far less than a false start.
+    gemini_vad_start_sensitivity: str = "START_SENSITIVITY_LOW"
 
     # ---- Live API capability toggles -------------------------------------
     #: Google Search grounding as a Live tool.
