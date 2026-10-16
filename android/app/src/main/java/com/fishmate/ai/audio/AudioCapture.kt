@@ -265,6 +265,10 @@ class AudioCapture(
         var farCursor = 0L
         var anchored = false
         var lastFilled = 0L
+        var streamedFrames = 0
+        var turnFrames = 0
+        var streamingTurn = false
+        var streamClosed = false
         var calibrations = 0
         var lastPeak = -1
         var steadyPeaks = 0
@@ -463,6 +467,15 @@ class AudioCapture(
                                 if (cancelFrames % CANCEL_LOG_EVERY == 0) {
                                     Log2.d(
                                         TAG,
+                                        "aec streaming $streamedFrames/$turnFrames frames " +
+                                            "avg=${"%.2f".format(removedAverage)}",
+                                    )
+                                    streamedFrames = 0
+                                    turnFrames = 0
+                                }
+                                if (cancelFrames % CANCEL_LOG_EVERY == 0) {
+                                    Log2.d(
+                                        TAG,
                                         "aec removed=${"%.2f".format(removed)} " +
                                             "mic=${sqrt(micEnergy / samples).toInt()} " +
                                             "clean=${sqrt(cleanEnergy / samples).toInt()} " +
@@ -546,7 +559,46 @@ class AudioCapture(
                             // anyway, with cancellation at 0.04, it is the
                             // assistant's own voice and it is interrupted as
                             // such.
-                            val trusted = referenced && removedAverage >= TRUSTED_REMOVAL
+                            // Latched for the turn, not decided per frame.
+                            //
+                            // Cancellation moves frame to frame, so a
+                            // per-frame test opened and closed the stream
+                            // constantly -- measured at 25 frames in 50, then
+                            // 9, then 38. Voice activity detection cannot do
+                            // anything with audio chopped like that: a spoken
+                            // question arrives as fragments with the gaps
+                            // taken out, which is not what a person sounds
+                            // like. So the first frame that shows the filter
+                            // working opens the stream and it stays open for
+                            // the rest of the turn.
+                            if (!suppressWhileSpeaking) {
+                                streamingTurn = false
+                                streamClosed = false
+                            } else {
+                                turnFrames++
+                                if (!streamingTurn && !streamClosed && referenced &&
+                                    removedAverage >= TRUSTED_REMOVAL
+                                ) {
+                                    streamingTurn = true
+                                }
+                                // One way out, and only one, so the stream is
+                                // opened at most once and closed at most once
+                                // per turn. A latch with no escape kept
+                                // streaming through a filter that had come
+                                // apart -- the average reached -11.29, the
+                                // canceller adding an order of magnitude more
+                                // than it removed -- and the server cut the
+                                // turn nine times. Reopening after that would
+                                // chop the stream again, which is the failure
+                                // the latch exists to avoid.
+                                if (streamingTurn && removedAverage < STREAM_DROP) {
+                                    streamingTurn = false
+                                    streamClosed = true
+                                    Log2.w(TAG, "aec gave up mid-turn; stream closed")
+                                }
+                                if (streamingTurn) streamedFrames++
+                            }
+                            val trusted = streamingTurn
                             if (accepted || (suppressWhileSpeaking && trusted)) {
                                 trySend(judged.copyOf(judgedLength))
                             }
@@ -680,12 +732,18 @@ class AudioCapture(
          * How much of the frame the canceller has to be removing, averaged,
          * before its output is judged in place of the microphone's.
          *
-         * Measured on a Galaxy A35 at 0.25-0.77 frame to frame, which is real
-         * cancellation and not yet enough to trust blind: see the notes in
-         * [SpeexEchoCanceller]. Until the average clears this the frame is
-         * judged exactly as it was before any of this existed.
+         * This is the *linear* filter's share. The residual suppressor in the
+         * preprocessor takes most of what the filter leaves behind, so the
+         * number here does not have to be high to make a frame worth sending
+         * -- it only has to show that the filter has something to say about
+         * this room. At 0.6 it almost never did, and the microphone was
+         * withheld for whole turns, which is the behaviour this whole exercise
+         * exists to remove.
          */
-        private const val TRUSTED_REMOVAL = 0.6
+        private const val TRUSTED_REMOVAL = 0.3
+
+        /** Cancellation below which the filter is no longer helping at all. */
+        private const val STREAM_DROP = 0.0
 
         private const val REMOVED_SMOOTHING = 0.05
 

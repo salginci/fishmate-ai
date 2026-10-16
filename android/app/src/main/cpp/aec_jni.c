@@ -51,6 +51,31 @@ Java_com_fishmate_ai_audio_SpeexEchoCanceller_nativeCreate(
                 state->preprocess, SPEEX_PREPROCESS_SET_NOISE_SUPPRESS, &noise_suppress);
         speex_preprocess_ctl(
                 state->preprocess, SPEEX_PREPROCESS_SET_ECHO_STATE, state->echo);
+
+        /* Residual echo suppression, well past the defaults of -40 and -15 dB.
+         *
+         * This is what makes an imperfect linear filter usable. The filter
+         * removes what it can model; whatever is left -- the speaker's own
+         * distortion, the part of the room outside the filter's span, the
+         * moments before it has converged -- is still the assistant's voice,
+         * and on the far side of this connection there is a voice activity
+         * detector that will call it speech and cancel the turn. Measured on
+         * a Galaxy A35: cancellation alone ran 0.13-0.93 depending on how well
+         * the filter had settled, which is not a margin anything can be built
+         * on.
+         *
+         * The cost is paid during double talk, where suppressing the residue
+         * also takes something off the angler's voice. SET_ECHO_SUPPRESS_ACTIVE
+         * is the value that applies then, and it is deliberately gentler than
+         * the one used while only the assistant is talking. */
+        int echo_suppress = -50;
+        int echo_suppress_active = -30;
+        speex_preprocess_ctl(
+                state->preprocess, SPEEX_PREPROCESS_SET_ECHO_SUPPRESS, &echo_suppress);
+        speex_preprocess_ctl(
+                state->preprocess,
+                SPEEX_PREPROCESS_SET_ECHO_SUPPRESS_ACTIVE,
+                &echo_suppress_active);
     }
     return (jlong) (intptr_t) state;
 }
