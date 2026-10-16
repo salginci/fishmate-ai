@@ -273,6 +273,26 @@ stops at first failure so ordering holds).
   gates the mic against a measured echo floor on speaker only. Do not "fix" it
   by muting during playback — that removes barge-in. Thresholds are pinned by
   `EchoGateTest`; two plausible-looking estimators both failed on-device first.
+- **The echo canceller is SpeexDSP, vendored and built with the NDK**
+  (`app/src/main/cpp`, `FarEndRing`, `SpeexEchoCanceller`). A hand-rolled NLMS
+  came first and reached 89 % cancellation against a synthetic room while
+  refusing to converge on a handset; cancelling echo robustly is a project in
+  itself, so the subtraction belongs to a library and the alignment, the
+  far-end ring and the meaning of the residual stay in Kotlin where they can be
+  read and tested. Two bugs found on the way are worth more than the filter:
+  far-end audio was filed **after** `AudioTrack.write`, which blocks until the
+  device has taken the samples, so the ring ran 120 ms behind the playback head
+  and the canceller was handed silence for exactly the frames carrying the echo
+  (`far=0` against a microphone reading 2873) — the level meter had the same
+  lateness, which is what made it report a silent speaker over a loud room. And
+  the reference has to *lead* the microphone: a recorder hands over a buffer
+  that has been filling for up to 80 ms, so reading the far end at the head
+  puts it behind the sound it is meant to explain, which no canceller can
+  represent. Cancellation now measures 0.25-0.90 frame to frame on a Galaxy
+  A35; the residual is only judged in place of the microphone once the smoothed
+  figure clears `TRUSTED_REMOVAL`, because a half-cancelled frame judged against
+  the room floor is worse than no cancellation at all.
+
 - **The echo gate's hardest problem was a broken reference, not a bad
   threshold.** The gate explains the microphone by what the speaker is
   playing, so everything rests on that reference being right, and it was wrong

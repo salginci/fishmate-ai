@@ -220,6 +220,23 @@ class AudioPlayer(
                 while (offset < chunk.size && isActive) {
                     // Blocking write applies natural backpressure: we only
                     // return when the device has consumed the samples.
+                    // Filed *before* the write, not after.
+                    //
+                    // `write` blocks until the device has taken the samples,
+                    // so anything filed after it returns describes audio that
+                    // has already left the speaker. Measured: the far-end ring
+                    // ran 120 ms behind the playback head, so the canceller
+                    // was handed silence for exactly the frames carrying the
+                    // echo -- `far=0` against a microphone reading 2873. The
+                    // level meter had the same lateness, which is what made it
+                    // report a silent speaker over a loud room.
+                    //
+                    // The cost of filing early is a flush: samples filed here
+                    // that never reach the room. That is rare, bounded by one
+                    // chunk, and self-correcting, where being late is neither.
+                    val pending = chunk.size - offset
+                    meter.record(chunk, offset, pending, framesWritten)
+                    onFarEnd?.invoke(chunk, offset, pending, framesWritten)
                     val written = runCatching {
                         current.write(chunk, offset, chunk.size - offset)
                     }.getOrDefault(-1)
@@ -232,14 +249,6 @@ class AudioPlayer(
                     // reset — so the avatar's mouth moved to audio nobody
                     // should have been hearing.
                     if (epoch != playbackEpoch) break
-                    meter.record(chunk, offset, written, framesWritten)
-                    // The same samples, to whoever is cancelling them out of
-                    // the microphone. Filed here rather than at enqueue()
-                    // because this is where they are committed to the speaker:
-                    // a chunk dropped by a flush never reaches the room, and a
-                    // canceller told otherwise would subtract audio nobody
-                    // heard.
-                    onFarEnd?.invoke(chunk, offset, written, framesWritten)
                     framesWritten += written / BYTES_PER_FRAME
                     offset += written
                 }

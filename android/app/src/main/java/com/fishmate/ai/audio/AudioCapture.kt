@@ -8,6 +8,8 @@ import android.media.audiofx.AcousticEchoCanceler
 import android.media.audiofx.AutomaticGainControl
 import android.media.audiofx.NoiseSuppressor
 import com.fishmate.ai.core.Log2
+import kotlin.math.abs
+import kotlin.math.sqrt
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -89,7 +91,10 @@ class AudioCapture(
     var onBargeIn: () -> Unit = {}
 
     private val echoGate = EchoGate()
-    private val canceller = EchoCanceller()
+    private val farEnd = FarEndRing()
+
+    @Volatile
+    private var canceller: SpeexEchoCanceller? = null
 
     /** Where playback has reached, for aligning [canceller]. */
     @Volatile
@@ -97,7 +102,7 @@ class AudioCapture(
 
     /** Far-end audio, as the player commits it to the speaker. */
     fun pushFarEnd(pcm: ByteArray, offset: Int, length: Int, startFrame: Long) {
-        canceller.pushFarEnd(pcm, offset, length, startFrame)
+        farEnd.push(pcm, offset, length, startFrame)
     }
 
     /**
@@ -214,6 +219,7 @@ class AudioCapture(
         // leak still measured 4000-7000, so they were never doing the job
         // their presence was justifying.
         attachEffects(recorder.audioSessionId)
+        canceller = SpeexEchoCanceller.create(chunkBytes / 2, sampleRateHz)
         recorder.startRecording()
         if (recorder.recordingState != AudioRecord.RECORDSTATE_RECORDING) {
             recorder.release()
@@ -227,7 +233,10 @@ class AudioCapture(
         // Scratch for the canceller: allocated once, because this loop runs
         // fifty times a second for the length of a session.
         var cancelFrames = 0
-        val residual = DoubleArray(chunkBytes / 2)
+        var farCursor = -1L
+        var removedAverage = -1.0
+        val micFrame = ShortArray(chunkBytes / 2)
+        val farFrame = ShortArray(chunkBytes / 2)
         val residualPcm = ByteArray(chunkBytes)
         try {
             // Three exit conditions, because the first two were not enough.
@@ -260,38 +269,79 @@ class AudioCapture(
                             var judged = buffer
                             var judgedLength = read
                             var judgedReference = speakerLevel()
-                            if (CANCELLER_ENABLED && suppressWhileSpeaking) {
-                                val samples = canceller.process(
-                                    buffer,
-                                    read,
-                                    playbackFrame(),
-                                    residual,
-                                )
+                            val aec = canceller
+                            if (aec != null && suppressWhileSpeaking) {
+                                val samples = minOf(read / 2, aec.frameSamples)
+                                var micEnergy = 0.0
+                                for (n in 0 until samples) {
+                                    val value = ((buffer[n * 2 + 1].toInt() shl 8) or
+                                        (buffer[n * 2].toInt() and 0xFF)).toShort()
+                                    micFrame[n] = value
+                                    micEnergy += value.toDouble() * value
+                                }
+                                // A continuous far-end stream, not a fresh
+                                // lookup each frame.
+                                //
+                                // The canceller keeps its own history across
+                                // calls and models the microphone as a filtered
+                                // version of it, so what it is given has to be
+                                // the signal as it was actually played: one
+                                // frame after another, no gaps and no repeats.
+                                // Reading at the playback head instead made the
+                                // far end jump by whatever the head happened to
+                                // be doing -- tens of milliseconds either way --
+                                // and the canceller was handed a stream nothing
+                                // had ever played. It removed 72 % of one frame
+                                // and added four times the next.
+                                val target =
+                                    farEnd.cursorFor(playbackFrame()) - samples - CAPTURE_LEAD
+                                if (farCursor < 0 || abs(farCursor - target) > RESYNC_SAMPLES) {
+                                    farCursor = target
+                                }
+                                farEnd.copyFrom(farCursor, farFrame)
+                                farCursor += samples
+                                val cleaned = aec.process(micFrame, farFrame)
+                                var cleanEnergy = 0.0
+                                for (n in 0 until samples) {
+                                    val value = cleaned[n]
+                                    cleanEnergy += value.toDouble() * value
+                                    residualPcm[n * 2] = (value.toInt() and 0xFF).toByte()
+                                    residualPcm[n * 2 + 1] = ((value.toInt() shr 8) and 0xFF).toByte()
+                                }
+                                val removed =
+                                    if (micEnergy <= 0.0) 0.0
+                                    else 1.0 - sqrt(cleanEnergy / micEnergy)
                                 if (++cancelFrames % CANCEL_LOG_EVERY == 0) {
                                     Log2.d(
                                         TAG,
-                                        "aec aligned=${canceller.isAligned} " +
-                                            "delay=${canceller.alignmentMs}ms " +
-                                            "cancelled=${"%.2f".format(canceller.cancelledFraction)} " +
-                                            "ref=${canceller.referenceEnergy.toInt()}",
+                                        "aec removed=${"%.2f".format(removed)} " +
+                                            "mic=${sqrt(micEnergy / samples).toInt()} " +
+                                            "clean=${sqrt(cleanEnergy / samples).toInt()} " +
+                                            "far=${farRms(farFrame, samples)} " +
+                                            "cursor=$farCursor filled=${farEnd.filled}",
                                     )
                                 }
-                                if (canceller.isAligned &&
-                                    canceller.cancelledFraction >= MIN_CANCELLATION
-                                ) {
-                                    for (n in 0 until samples) {
-                                        val value = residual[n].toInt().coerceIn(-32_768, 32_767)
-                                        residualPcm[n * 2] = (value and 0xFF).toByte()
-                                        residualPcm[n * 2 + 1] = ((value shr 8) and 0xFF).toByte()
-                                    }
+                                removedAverage =
+                                    if (removedAverage < 0) removed
+                                    else removedAverage * (1 - REMOVED_SMOOTHING) +
+                                        removed * REMOVED_SMOOTHING
+                                if (removedAverage >= TRUSTED_REMOVAL) {
+                                    // The echo is out of this frame, so the
+                                    // reference has nothing left to explain and
+                                    // the gate falls back to the room -- the
+                                    // honest rule once subtraction works, and
+                                    // the one thing a level test can do well.
                                     judged = residualPcm
                                     judgedLength = samples * 2
-                                    // The echo is gone from this frame, so the
-                                    // reference has nothing left to explain and
-                                    // the gate falls back to the room, which is
-                                    // the honest rule once subtraction works.
                                     judgedReference = 0f
                                 }
+                                // Below that, the raw frame and the old
+                                // reference-based bar stay in charge. A
+                                // half-cancelled frame judged against the room
+                                // floor is worse than no cancellation at all:
+                                // what is left of the assistant still clears a
+                                // bar meant for a quiet room, and the
+                                // assistant interrupts itself.
                             }
                             val wasOpen = echoGate.isBargeInOpen
                             val accepted = echoGate.accepts(
@@ -336,8 +386,17 @@ class AudioCapture(
             runCatching { record?.stop() }
             runCatching { record?.release() }
             record = null
+            canceller?.release()
+            canceller = null
+            farEnd.reset()
         }
     }.flowOn(Dispatchers.IO)
+
+    private fun farRms(frame: ShortArray, samples: Int): Int {
+        var sum = 0.0
+        for (n in 0 until samples) sum += frame[n].toDouble() * frame[n]
+        return sqrt(sum / samples).toInt()
+    }
 
     private fun attachEffects(sessionId: Int) {
         if (!PLATFORM_EFFECTS) {
@@ -394,27 +453,47 @@ class AudioCapture(
          * on this handset, so turning them off would remove what little
          * cancellation there is and leave nothing in its place.
          */
-        private const val PLATFORM_EFFECTS = true
+        private const val PLATFORM_EFFECTS = false
 
-        /**
-         * Whether the adaptive canceller runs at all.
-         *
-         * Off until it converges on hardware. It reaches 89 % cancellation
-         * against a synthetic room in [com.fishmate.ai.EchoCancellerTest] and
-         * hovers around zero on a Galaxy A35, where the path it is trying to
-         * learn is neither linear nor steady -- the platform effects in front
-         * of it reshape the signal, and the playback head it aligns against
-         * jitters by tens of milliseconds. Left wired up and tested rather
-         * than deleted, because the measurement it rests on is sound and the
-         * next step is a proven canceller in place of this one, not a
-         * different threshold.
-         */
-        private const val CANCELLER_ENABLED = false
 
-        private const val MIN_CANCELLATION = 0.75
 
         /** One line a second while the assistant speaks. */
         private const val CANCEL_LOG_EVERY = 50
+
+        /**
+         * How far the far-end cursor may drift from the playback head before
+         * it is put back: 100 ms. Small enough that a flush or a long stall is
+         * followed, large enough that ordinary jitter in the head reading --
+         * which is what broke the first attempt -- never moves it.
+         */
+        private const val RESYNC_SAMPLES = 1_600
+
+        /**
+         * How far back from the playback head the far end is read: 150 ms.
+         *
+         * The reference has to *lead* the microphone -- a canceller models the
+         * echo as the far end filtered and delayed, and it has no way to
+         * represent a reference that arrives after the sound it is supposed to
+         * explain. The recorder hands over a buffer that has been filling for
+         * up to 80 ms, so a frame read now contains audio from before the head
+         * reading taken beside it, and feeding the far end at the head put the
+         * reference behind the microphone. This puts it comfortably in front,
+         * and the filter spans the rest.
+         */
+        private const val CAPTURE_LEAD = 2_400
+
+        /**
+         * How much of the frame the canceller has to be removing, averaged,
+         * before its output is judged in place of the microphone's.
+         *
+         * Measured on a Galaxy A35 at 0.25-0.77 frame to frame, which is real
+         * cancellation and not yet enough to trust blind: see the notes in
+         * [SpeexEchoCanceller]. Until the average clears this the frame is
+         * judged exactly as it was before any of this existed.
+         */
+        private const val TRUSTED_REMOVAL = 0.6
+
+        private const val REMOVED_SMOOTHING = 0.05
 
         private const val TAG = "AudioCapture"
 

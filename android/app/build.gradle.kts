@@ -53,6 +53,29 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         resourceConfigurations += listOf("en", "tr")
         vectorDrawables.useSupportLibrary = true
+
+        // The echo canceller is the one piece that cannot be written in
+        // Kotlin: a hand-rolled adaptive filter reached 89 % cancellation
+        // against a synthetic room and would not converge on a handset.
+        // SpeexDSP is vendored under src/main/cpp/speexdsp.
+        externalNativeBuild {
+            cmake {
+                arguments += listOf("-DANDROID_STL=none")
+            }
+        }
+        ndk {
+            // The ABIs real phones ship: 32-bit ARM for older handsets, 64-bit
+            // for everything current. x86 is emulator-only and the emulator
+            // has no loudspeaker leak to cancel.
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
     }
 
     buildTypes {
