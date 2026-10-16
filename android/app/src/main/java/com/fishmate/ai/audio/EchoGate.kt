@@ -116,6 +116,7 @@ class EchoGate(
     /** Loudest leak measured during the current spoken turn, in speech-band RMS. */
     private var turnEchoPeak = 0.0
     private var loudFrames = 0
+    private var nearMisses = 0
     private var bargeInOpen = false
 
     /** Current echo estimate for the last reference seen, for logs and tests. */
@@ -340,6 +341,27 @@ class EchoGate(
             )
         }
 
+        // A near miss is the only frame worth a line of its own: something
+        // speech-shaped, loud enough to be a person, and still short of the
+        // bar. A periodic line cannot catch it -- at one line a second a
+        // spoken question falls between two of them, which is exactly what
+        // happened when an angler reported not being heard and the log had
+        // nothing to say about the second they were talking in.
+        if (voiceLike && rms >= threshold * NEAR_MISS_FRACTION && rms > noiseBar() &&
+            rms < threshold
+        ) {
+            nearMisses++
+            if (nearMisses <= NEAR_MISS_BURST) {
+                Log2.i(
+                    TAG,
+                    "near miss voice=${rms.toInt()} threshold=${threshold.toInt()} " +
+                        "short by ${(threshold - rms).toInt()} " +
+                        "ref=${"%.2f".format(ref)} echo=${estimatedEchoRms.toInt()} " +
+                        "peak=${turnEchoPeak.toInt()} gain=${leakGain().toInt()}",
+                )
+            }
+        }
+
         if (rms < threshold || !voiceLike) {
             // Learn *after* classifying, and only from frames judged to be
             // echo. Updating before would let the angler's own voice raise
@@ -404,6 +426,7 @@ class EchoGate(
         calibratedFrames = 0
         estimatedEchoRms = 0.0
         loudFrames = 0
+        nearMisses = 0
         bargeInOpen = false
     }
 
@@ -699,6 +722,12 @@ class EchoGate(
          * both of which still clear 0.8 comfortably.
          */
         const val PEAK_FLOOR = 0.8
+
+        /** How close to the bar a frame has to come to be worth logging. */
+        private const val NEAR_MISS_FRACTION = 0.4
+
+        /** At most this many near-miss lines per turn, so a turn cannot flood. */
+        private const val NEAR_MISS_BURST = 12
 
         /**
          * Loud-reference frames spent measuring the leak before anything can
