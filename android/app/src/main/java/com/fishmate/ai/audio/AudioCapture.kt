@@ -89,6 +89,16 @@ class AudioCapture(
     var onBargeIn: () -> Unit = {}
 
     private val echoGate = EchoGate()
+    private val canceller = EchoCanceller()
+
+    /** Where playback has reached, for aligning [canceller]. */
+    @Volatile
+    var playbackFrame: () -> Long = { 0L }
+
+    /** Far-end audio, as the player commits it to the speaker. */
+    fun pushFarEnd(pcm: ByteArray, offset: Int, length: Int, startFrame: Long) {
+        canceller.pushFarEnd(pcm, offset, length, startFrame)
+    }
 
     /**
      * Whether the gate has accepted a barge-in for the turn being spoken.
@@ -186,10 +196,23 @@ class AudioCapture(
         }
 
         record = recorder
-        // VOICE_COMMUNICATION is supposed to engage these, but on many devices
-        // they are not attached unless asked for explicitly. Without echo
-        // cancellation the loop described on `suppressWhileSpeaking` is
-        // unavoidable.
+        // The platform's effects, for as long as we still depend on them.
+        //
+        // They are in the wrong place for what we are trying to do next:
+        // [EchoCanceller] works by predicting the microphone from the signal
+        // we sent to the speaker, which is only possible while the path
+        // between them stays linear.
+        // The platform effects are neither linear nor steady: they suppress by
+        // an amount that depends on what they think they are hearing, moment
+        // to moment. Measured with them attached, the filter that reaches 89 %
+        // cancellation against a synthetic room hovered around zero on the
+        // device and the alignment it found wandered between 137 and 198 ms
+        // for the same unmoved phone. A filter cannot learn a room that is
+        // being reshaped underneath it.
+        //
+        // This also settles an older contradiction: with them attached the
+        // leak still measured 4000-7000, so they were never doing the job
+        // their presence was justifying.
         attachEffects(recorder.audioSessionId)
         recorder.startRecording()
         if (recorder.recordingState != AudioRecord.RECORDSTATE_RECORDING) {
@@ -201,6 +224,11 @@ class AudioCapture(
         Log2.i(TAG, "capture started rate=$sampleRateHz chunk=${chunkBytes}B buffer=${bufferBytes}B")
 
         val buffer = ByteArray(chunkBytes)
+        // Scratch for the canceller: allocated once, because this loop runs
+        // fifty times a second for the length of a session.
+        var cancelFrames = 0
+        val residual = DoubleArray(chunkBytes / 2)
+        val residualPcm = ByteArray(chunkBytes)
         try {
             // Three exit conditions, because the first two were not enough.
             //
@@ -222,12 +250,55 @@ class AudioCapture(
                         // Keep reading even when we publish nothing, so the
                         // AudioRecord buffer never overflows.
                         if (!isMuted) {
+                            // Take the assistant's own voice out of the
+                            // frame before anything judges it, and before any
+                            // of it is sent. What the gate then sees is the
+                            // room and the angler, which a level test can
+                            // separate -- unlike the raw frame, where the leak
+                            // and a voice both measure 3000-7000 on this
+                            // handset and no threshold divides them.
+                            var judged = buffer
+                            var judgedLength = read
+                            var judgedReference = speakerLevel()
+                            if (CANCELLER_ENABLED && suppressWhileSpeaking) {
+                                val samples = canceller.process(
+                                    buffer,
+                                    read,
+                                    playbackFrame(),
+                                    residual,
+                                )
+                                if (++cancelFrames % CANCEL_LOG_EVERY == 0) {
+                                    Log2.d(
+                                        TAG,
+                                        "aec aligned=${canceller.isAligned} " +
+                                            "delay=${canceller.alignmentMs}ms " +
+                                            "cancelled=${"%.2f".format(canceller.cancelledFraction)} " +
+                                            "ref=${canceller.referenceEnergy.toInt()}",
+                                    )
+                                }
+                                if (canceller.isAligned &&
+                                    canceller.cancelledFraction >= MIN_CANCELLATION
+                                ) {
+                                    for (n in 0 until samples) {
+                                        val value = residual[n].toInt().coerceIn(-32_768, 32_767)
+                                        residualPcm[n * 2] = (value and 0xFF).toByte()
+                                        residualPcm[n * 2 + 1] = ((value shr 8) and 0xFF).toByte()
+                                    }
+                                    judged = residualPcm
+                                    judgedLength = samples * 2
+                                    // The echo is gone from this frame, so the
+                                    // reference has nothing left to explain and
+                                    // the gate falls back to the room, which is
+                                    // the honest rule once subtraction works.
+                                    judgedReference = 0f
+                                }
+                            }
                             val wasOpen = echoGate.isBargeInOpen
                             val accepted = echoGate.accepts(
-                                buffer,
-                                read,
+                                judged,
+                                judgedLength,
                                 suppressWhileSpeaking,
-                                speakerLevel(),
+                                judgedReference,
                             )
                             if (accepted) {
                                 // The transition, not the state: fire once per
@@ -235,7 +306,11 @@ class AudioCapture(
                                 if (suppressWhileSpeaking && !wasOpen && echoGate.isBargeInOpen) {
                                     runCatching { onBargeIn() }
                                 }
-                                trySend(buffer.copyOf(read))
+                                // Send what was judged: with the echo removed
+                                // the server's own VAD stops hearing the
+                                // assistant, which is what made it interrupt
+                                // itself and language-detect its own output.
+                                trySend(judged.copyOf(judgedLength))
                             }
                         }
                     }
@@ -265,6 +340,10 @@ class AudioCapture(
     }.flowOn(Dispatchers.IO)
 
     private fun attachEffects(sessionId: Int) {
+        if (!PLATFORM_EFFECTS) {
+            Log2.i(TAG, "effects: left off, the canceller owns this signal")
+            return
+        }
         if (AcousticEchoCanceler.isAvailable()) {
             echoCanceler = runCatching {
                 AcousticEchoCanceler.create(sessionId)?.apply { enabled = true }
@@ -298,6 +377,45 @@ class AudioCapture(
     }
 
     companion object {
+        /**
+         * How much of the frame the canceller has to be removing before its
+         * output is trusted in place of the microphone's.
+         *
+         * Below this the filter has not converged -- the opening moments of a
+         * session, or a phone just picked up and moved -- and the residual
+         * still carries enough of the assistant to be mistaken for a voice, so
+         * the old reference-based rule stays in charge until it has.
+         */
+        /**
+         * Whether to hand the microphone to the platform's effects first.
+         *
+         * On, for now. They are the wrong thing to have in front of an
+         * adaptive canceller -- see [chunks] -- but ours does not yet converge
+         * on this handset, so turning them off would remove what little
+         * cancellation there is and leave nothing in its place.
+         */
+        private const val PLATFORM_EFFECTS = true
+
+        /**
+         * Whether the adaptive canceller runs at all.
+         *
+         * Off until it converges on hardware. It reaches 89 % cancellation
+         * against a synthetic room in [com.fishmate.ai.EchoCancellerTest] and
+         * hovers around zero on a Galaxy A35, where the path it is trying to
+         * learn is neither linear nor steady -- the platform effects in front
+         * of it reshape the signal, and the playback head it aligns against
+         * jitters by tens of milliseconds. Left wired up and tested rather
+         * than deleted, because the measurement it rests on is sound and the
+         * next step is a proven canceller in place of this one, not a
+         * different threshold.
+         */
+        private const val CANCELLER_ENABLED = false
+
+        private const val MIN_CANCELLATION = 0.75
+
+        /** One line a second while the assistant speaks. */
+        private const val CANCEL_LOG_EVERY = 50
+
         private const val TAG = "AudioCapture"
 
         /**

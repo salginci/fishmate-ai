@@ -101,6 +101,20 @@ class AudioPlayer(
      * [OutputLevelMeter.referenceAt]. Distinct from [outputLevel], which drives
      * the avatar and must stay silent when nothing is scheduled.
      */
+    /**
+     * Far-end audio as it is committed to the speaker: the buffer, its offset
+     * and length, and the playback frame it starts at.
+     */
+    @Volatile
+    var onFarEnd: ((ByteArray, Int, Int, Long) -> Unit)? = null
+
+    /** Where playback has reached, in frames, for aligning the canceller. */
+    val playbackFrame: Long
+        get() {
+            val current = track ?: return 0L
+            return current.playbackHeadPosition.toLong() and 0xFFFF_FFFFL
+        }
+
     val echoReference: Float
         get() {
             val current = track ?: return 0f
@@ -219,6 +233,13 @@ class AudioPlayer(
                     // should have been hearing.
                     if (epoch != playbackEpoch) break
                     meter.record(chunk, offset, written, framesWritten)
+                    // The same samples, to whoever is cancelling them out of
+                    // the microphone. Filed here rather than at enqueue()
+                    // because this is where they are committed to the speaker:
+                    // a chunk dropped by a flush never reaches the room, and a
+                    // canceller told otherwise would subtract audio nobody
+                    // heard.
+                    onFarEnd?.invoke(chunk, offset, written, framesWritten)
                     framesWritten += written / BYTES_PER_FRAME
                     offset += written
                 }

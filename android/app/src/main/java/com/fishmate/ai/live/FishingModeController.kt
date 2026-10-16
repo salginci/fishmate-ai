@@ -194,6 +194,8 @@ class FishingModeController(
     suspend fun stop() {
         micJob?.cancel(); micJob = null
         audioCapture.speakerLevel = { 0f }
+        audioCapture.playbackFrame = { 0L }
+        audioPlayer.onFarEnd = null
         audioCapture.onBargeIn = {}
         cameraJob?.cancel(); cameraJob = null
         echoGuardJob?.cancel(); echoGuardJob = null
@@ -318,6 +320,10 @@ class FishingModeController(
         // The far-end reference the gate needs, and the local fast path that
         // stops playback without waiting for the server to agree.
         audioCapture.speakerLevel = { audioPlayer.echoReference }
+        audioCapture.playbackFrame = { audioPlayer.playbackFrame }
+        audioPlayer.onFarEnd = { pcm, offset, length, frame ->
+            audioCapture.pushFarEnd(pcm, offset, length, frame)
+        }
         audioCapture.onBargeIn = { onLocalBargeIn() }
         micJob = scope.launch {
             audioCapture.chunks()
