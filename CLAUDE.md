@@ -235,6 +235,27 @@ stops at first failure so ordering holds).
 - Audio: **16 kHz in, 24 kHz out** — different rates, both from the server.
   `AudioCapture` must use `VOICE_COMMUNICATION` (not `MIC`) or the model hears
   itself and interrupts continuously.
+- **The hardware echo canceller needs `MODE_IN_COMMUNICATION`, and without it
+  everything below was measurement of a canceller that never ran.** The
+  platform AEC lives in the audio HAL's voice path and subtracts what that path
+  is playing. Recording from `VOICE_COMMUNICATION` and playing with
+  `USAGE_VOICE_COMMUNICATION` does not put the output on that path: while
+  `AudioManager.mode` stays `MODE_NORMAL` the track is mixed on the media path,
+  so the canceller has no reference and removes nothing — while
+  `AcousticEchoCanceler.enabled` still reports `true`, which is what made this
+  invisible for so long. The mode is entered in `AudioRouting` *before* the
+  track or the recorder is created, because the HAL binds a path when a stream
+  opens; `FishingModeControllerTest` pins that ordering, and the mode is handed
+  back on stop and on a failed start, since a leaked communication mode is the
+  phone stuck in a call. `MODIFY_AUDIO_SETTINGS` is required for it. Entering
+  it also moves the loudspeaker onto `STREAM_VOICE_CALL`, which carries its own
+  volume, so the level is logged to keep "quiet" legible as something other
+  than "broken". **Everything in the two bullets below — the echo floor, the
+  per-turn peak, the duck — was built to survive an uncancelled leak, and an
+  audible duck is not something a Gemini showcase can ship. Re-measure the leak
+  with the mode on before tuning any of it; the expectation is that the gate
+  stops having anything to reject and the duck stops firing on its own.**
+
 - **On a loudspeaker, `VOICE_COMMUNICATION` alone is not enough.** The model's
   own voice reaches the mic, VAD calls it a barge-in, and the conversation
   collapses — 32 interruptions in 50 s on a Galaxy A35. It also makes the model

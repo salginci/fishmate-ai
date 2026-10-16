@@ -41,6 +41,13 @@ class AudioRouting(
     private var focusRequest: AudioFocusRequest? = null
     private var deviceCallback: AudioDeviceCallback? = null
 
+    /**
+     * The mode the device was in before this session took it over, or null
+     * while we have not taken it. Also the re-entry guard: route changes call
+     * into here repeatedly and must not stack up saved modes.
+     */
+    private var previousMode: Int? = null
+
     private val focusListener = AudioManager.OnAudioFocusChangeListener { change ->
         when (change) {
             AudioManager.AUDIOFOCUS_LOSS,
@@ -84,6 +91,55 @@ class AudioRouting(
         focusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
         focusRequest = null
         _focusLost.value = false
+    }
+
+    /**
+     * Put the device in its communication mode, which is what actually arms
+     * the hardware echo canceller.
+     *
+     * The platform AEC lives in the audio HAL's voice path and its reference
+     * signal is whatever that path is playing. Recording from
+     * `VOICE_COMMUNICATION` and playing with `USAGE_VOICE_COMMUNICATION` is
+     * not enough on its own: while the device mode stays `MODE_NORMAL` the
+     * output is mixed on the **media** path, so the canceller has nothing to
+     * subtract — and `AcousticEchoCanceler.enabled` still reports `true`,
+     * which is why our own diagnostics claimed the AEC was on through every
+     * measurement of a leak it should have removed. Everything built on top of
+     * that measurement — the echo floor, the per-turn peak, the duck — was
+     * compensating for a canceller that was never running.
+     *
+     * Called before the track and the recorder are created, because the HAL
+     * picks a path when they open: entering the mode afterwards leaves both of
+     * them on the path they already have.
+     */
+    fun enterCommunicationMode() {
+        if (previousMode != null) return
+        val before = audioManager.mode
+        val applied = runCatching {
+            audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
+        }.isSuccess
+        if (!applied) {
+            Log2.w(TAG, "could not enter communication mode; the AEC has no reference")
+            return
+        }
+        previousMode = before
+        // The volume is logged because communication mode moves the
+        // loudspeaker onto STREAM_VOICE_CALL, which carries its own level: a
+        // phone whose in-call volume sits low makes the assistant faint, and
+        // that has to be legible in a field log as "quiet", not as "broken".
+        Log2.i(
+            TAG,
+            "audio mode ${modeLabel(before)} -> ${modeLabel(audioManager.mode)} " +
+                "voiceCallVolume=${volumeOf(AudioManager.STREAM_VOICE_CALL)}",
+        )
+    }
+
+    /** Hand the mode back, so a session cannot leave the phone in a call. */
+    fun leaveCommunicationMode() {
+        val restore = previousMode ?: return
+        previousMode = null
+        runCatching { audioManager.mode = restore }
+        Log2.i(TAG, "audio mode restored to ${modeLabel(restore)}")
     }
 
     /** Begin tracking output devices; call when entering Fishing Mode. */
@@ -182,6 +238,18 @@ class AudioRouting(
             }
         }
     }
+
+    private fun modeLabel(mode: Int): String = when (mode) {
+        AudioManager.MODE_NORMAL -> "normal"
+        AudioManager.MODE_RINGTONE -> "ringtone"
+        AudioManager.MODE_IN_CALL -> "in-call"
+        AudioManager.MODE_IN_COMMUNICATION -> "in-communication"
+        else -> "mode-$mode"
+    }
+
+    private fun volumeOf(stream: Int): String = runCatching {
+        "${audioManager.getStreamVolume(stream)}/${audioManager.getStreamMaxVolume(stream)}"
+    }.getOrDefault("unknown")
 
     private fun deviceLabel(type: Int): String = when (type) {
         AudioDeviceInfo.TYPE_BLUETOOTH_SCO -> "bluetooth"

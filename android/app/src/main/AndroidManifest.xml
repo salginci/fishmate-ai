@@ -4,6 +4,10 @@
 
     <!-- Core of the product: two-way voice with the assistant. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Lets the session enter MODE_IN_COMMUNICATION, which is what arms the
+         hardware echo canceller: without it the output is mixed on the media
+         path and the canceller has no reference to subtract. -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
