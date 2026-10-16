@@ -48,6 +48,19 @@ class SpeexEchoCanceller private constructor(
         return output
     }
 
+    /**
+     * Forget the room.
+     *
+     * Called when playback is flushed, because the playback head restarts at
+     * zero there: every weight in the filter describes an alignment that no
+     * longer exists, and carrying them into the next sentence is worse than
+     * starting cold.
+     */
+    fun reset() {
+        if (handle == 0L) return
+        nativeReset(handle)
+    }
+
     fun release() {
         if (handle == 0L) return
         nativeDestroy(handle)
@@ -94,6 +107,9 @@ class SpeexEchoCanceller private constructor(
             far: ShortArray,
             out: ShortArray,
         )
+
+        @JvmStatic
+        private external fun nativeReset(handle: Long)
 
         @JvmStatic
         private external fun nativeDestroy(handle: Long)

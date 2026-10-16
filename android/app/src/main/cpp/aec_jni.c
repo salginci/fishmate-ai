@@ -79,6 +79,17 @@ Java_com_fishmate_ai_audio_SpeexEchoCanceller_nativeProcess(
 }
 
 JNIEXPORT void JNICALL
+Java_com_fishmate_ai_audio_SpeexEchoCanceller_nativeReset(
+        JNIEnv *env, jclass clazz, jlong handle) {
+    (void) env;
+    (void) clazz;
+    fishmate_aec_t *state = (fishmate_aec_t *) (intptr_t) handle;
+    if (state != NULL && state->echo != NULL) {
+        speex_echo_state_reset(state->echo);
+    }
+}
+
+JNIEXPORT void JNICALL
 Java_com_fishmate_ai_audio_SpeexEchoCanceller_nativeDestroy(
         JNIEnv *env, jclass clazz, jlong handle) {
     (void) env;

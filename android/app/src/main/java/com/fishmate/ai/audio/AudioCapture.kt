@@ -96,6 +96,9 @@ class AudioCapture(
     @Volatile
     private var canceller: SpeexEchoCanceller? = null
 
+    /** Bumped on [resetEcho], so the capture loop drops its cursor. */
+    private val echoReset = AtomicInteger(0)
+
     /** Where playback has reached, for aligning [canceller]. */
     @Volatile
     var playbackFrame: () -> Long = { 0L }
@@ -103,6 +106,24 @@ class AudioCapture(
     /** Far-end audio, as the player commits it to the speaker. */
     fun pushFarEnd(pcm: ByteArray, offset: Int, length: Int, startFrame: Long) {
         farEnd.push(pcm, offset, length, startFrame)
+    }
+
+    /**
+     * Playback restarted from zero: drop everything that was measured against
+     * the old playback clock.
+     *
+     * Without this an interruption feeds the next one. The server cancels the
+     * turn, playback is flushed, `framesWritten` and the playback head both
+     * return to zero, and the far-end ring is suddenly describing a timeline
+     * that no longer exists -- so the next sentence is cancelled against
+     * nothing, its echo reaches the server unattenuated, and it is interrupted
+     * too. Measured on the device as three interruptions in five seconds with
+     * the microphone reading 1 and 2.
+     */
+    fun resetEcho() {
+        farEnd.reset()
+        canceller?.reset()
+        echoReset.incrementAndGet()
     }
 
     /**
@@ -234,6 +255,7 @@ class AudioCapture(
         // fifty times a second for the length of a session.
         var cancelFrames = 0
         var farCursor = -1L
+        var seenReset = echoReset.get()
         var removedAverage = -1.0
         val micFrame = ShortArray(chunkBytes / 2)
         val farFrame = ShortArray(chunkBytes / 2)
@@ -269,6 +291,7 @@ class AudioCapture(
                             var judged = buffer
                             var judgedLength = read
                             var judgedReference = speakerLevel()
+                            var referenced = false
                             val aec = canceller
                             if (aec != null && suppressWhileSpeaking) {
                                 val samples = minOf(read / 2, aec.frameSamples)
@@ -293,11 +316,17 @@ class AudioCapture(
                                 // and the canceller was handed a stream nothing
                                 // had ever played. It removed 72 % of one frame
                                 // and added four times the next.
+                                if (seenReset != echoReset.get()) {
+                                    seenReset = echoReset.get()
+                                    farCursor = -1L
+                                    removedAverage = -1.0
+                                }
                                 val target =
                                     farEnd.cursorFor(playbackFrame()) - samples - CAPTURE_LEAD
                                 if (farCursor < 0 || abs(farCursor - target) > RESYNC_SAMPLES) {
                                     farCursor = target
                                 }
+                                referenced = farEnd.holds(farCursor, samples)
                                 farEnd.copyFrom(farCursor, farFrame)
                                 farCursor += samples
                                 val cleaned = aec.process(micFrame, farFrame)
@@ -381,7 +410,15 @@ class AudioCapture(
                             // canceller is what keeps the assistant's own voice
                             // out of the stream -- the actual fix for the
                             // self-interruption this gate was built to prevent.
-                            if (accepted || (suppressWhileSpeaking && aec != null)) {
+                            // Streaming through the turn is only safe while we
+                            // have the reference that makes cancellation
+                            // possible. Just after a flush the ring is empty
+                            // and the playback head has restarted, so the frame
+                            // is the assistant's voice with nothing taken out
+                            // of it -- send that and the server interrupts the
+                            // sentence it has only just started, which flushes
+                            // again. The gate's own judgement covers that gap.
+                            if (accepted || (suppressWhileSpeaking && referenced)) {
                                 trySend(judged.copyOf(judgedLength))
                             }
                         }

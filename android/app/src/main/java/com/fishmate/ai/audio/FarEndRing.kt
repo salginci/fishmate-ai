@@ -72,6 +72,9 @@ class FarEndRing(
     /** Where a playback head reading lands in capture-rate samples. */
     fun cursorFor(headFrame: Long): Long = toCaptureRate(headFrame)
 
+    /** Whether [count] samples from [from] are audio we actually played. */
+    fun holds(from: Long, count: Int): Boolean = from >= start && from + count <= end
+
     fun reset() {
         end = 0L
         start = 0L

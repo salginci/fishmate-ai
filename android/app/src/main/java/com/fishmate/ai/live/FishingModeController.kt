@@ -196,6 +196,7 @@ class FishingModeController(
         audioCapture.speakerLevel = { 0f }
         audioCapture.playbackFrame = { 0L }
         audioPlayer.onFarEnd = null
+        audioPlayer.onPlaybackReset = null
         audioCapture.onBargeIn = {}
         cameraJob?.cancel(); cameraJob = null
         echoGuardJob?.cancel(); echoGuardJob = null
@@ -324,6 +325,7 @@ class FishingModeController(
         audioPlayer.onFarEnd = { pcm, offset, length, frame ->
             audioCapture.pushFarEnd(pcm, offset, length, frame)
         }
+        audioPlayer.onPlaybackReset = { audioCapture.resetEcho() }
         audioCapture.onBargeIn = { onLocalBargeIn() }
         micJob = scope.launch {
             audioCapture.chunks()

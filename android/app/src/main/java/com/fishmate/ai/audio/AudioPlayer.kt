@@ -108,6 +108,14 @@ class AudioPlayer(
     @Volatile
     var onFarEnd: ((ByteArray, Int, Int, Long) -> Unit)? = null
 
+    /**
+     * Playback restarted from zero. Whoever is cancelling this signal out of
+     * the microphone has to be told: the frame counter and the playback head
+     * both go back to zero here, so everything measured against them is void.
+     */
+    @Volatile
+    var onPlaybackReset: (() -> Unit)? = null
+
     /** Where playback has reached, in frames, for aligning the canceller. */
     val playbackFrame: Long
         get() {
@@ -177,6 +185,7 @@ class AudioPlayer(
         track = created
         framesWritten = 0L
         meter.reset()
+        onPlaybackReset?.invoke()
         created.play()
         startPump()
         Log2.i(TAG, "player started rate=$sampleRateHz")
@@ -289,6 +298,7 @@ class AudioPlayer(
         }.onFailure { Log2.w(TAG, "flush failed", it) }
         framesWritten = 0L
         meter.reset()
+        onPlaybackReset?.invoke()
         isPlaying = false
         Log2.d(TAG, "playback flushed (interruption)")
     }
@@ -300,6 +310,7 @@ class AudioPlayer(
         queue.clear()
         framesWritten = 0L
         meter.reset()
+        onPlaybackReset?.invoke()
         isPlaying = false
         val current = track ?: return
         runCatching {
