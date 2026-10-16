@@ -78,6 +78,50 @@ Java_com_fishmate_ai_audio_SpeexEchoCanceller_nativeProcess(
     if (out_samples != NULL) (*env)->ReleaseShortArrayElements(env, out, out_samples, 0);
 }
 
+/*
+ * Where the room's response peaks, in samples.
+ *
+ * The filter's own answer to the question the alignment is guessing at: tap k
+ * means "this much of the far end, k samples ago", so the largest tap is the
+ * delay between the reference we hand it and the echo in the microphone. A
+ * peak at the far end of the filter means we are feeding the reference too
+ * late and most of the filter is being spent on pure delay instead of on the
+ * room; a peak at zero means we are feeding it too early and the start of the
+ * response has been cut off.
+ */
+JNIEXPORT jint JNICALL
+Java_com_fishmate_ai_audio_SpeexEchoCanceller_nativePeakTap(
+        JNIEnv *env, jclass clazz, jlong handle) {
+    (void) env;
+    (void) clazz;
+    fishmate_aec_t *state = (fishmate_aec_t *) (intptr_t) handle;
+    if (state == NULL || state->echo == NULL) {
+        return -1;
+    }
+    spx_int32_t size = 0;
+    if (speex_echo_ctl(state->echo, SPEEX_ECHO_GET_IMPULSE_RESPONSE_SIZE, &size) != 0 ||
+        size <= 0) {
+        return -1;
+    }
+    spx_int32_t *response = calloc((size_t) size, sizeof(spx_int32_t));
+    if (response == NULL) {
+        return -1;
+    }
+    jint peak = -1;
+    if (speex_echo_ctl(state->echo, SPEEX_ECHO_GET_IMPULSE_RESPONSE, response) == 0) {
+        spx_int32_t best = 0;
+        for (spx_int32_t i = 0; i < size; i++) {
+            spx_int32_t magnitude = response[i] < 0 ? -response[i] : response[i];
+            if (magnitude > best) {
+                best = magnitude;
+                peak = i;
+            }
+        }
+    }
+    free(response);
+    return peak;
+}
+
 JNIEXPORT void JNICALL
 Java_com_fishmate_ai_audio_SpeexEchoCanceller_nativeReset(
         JNIEnv *env, jclass clazz, jlong handle) {

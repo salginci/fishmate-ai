@@ -56,6 +56,12 @@ class SpeexEchoCanceller private constructor(
      * longer exists, and carrying them into the next sentence is worse than
      * starting cold.
      */
+    /**
+     * The filter's own view of the delay, in samples, or -1 before it has
+     * one. Diagnostic: it says whether the far end is being fed early enough.
+     */
+    fun peakTap(): Int = if (handle == 0L) -1 else nativePeakTap(handle)
+
     fun reset() {
         if (handle == 0L) return
         nativeReset(handle)
@@ -107,6 +113,9 @@ class SpeexEchoCanceller private constructor(
             far: ShortArray,
             out: ShortArray,
         )
+
+        @JvmStatic
+        private external fun nativePeakTap(handle: Long): Int
 
         @JvmStatic
         private external fun nativeReset(handle: Long)

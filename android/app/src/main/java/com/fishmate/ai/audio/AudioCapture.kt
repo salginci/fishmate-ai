@@ -121,8 +121,16 @@ class AudioCapture(
      * the microphone reading 1 and 2.
      */
     fun resetEcho() {
+        // The ring and the cursor go, because they are counted against a
+        // playback clock that has just restarted. The filter stays.
+        //
+        // Dropping its weights too looked right and made things worse: they
+        // describe the room -- speaker to microphone -- which a flush does not
+        // change, and starting cold after every interruption meant the filter
+        // never reconverged between them. Measured as cancellation falling to
+        // 0.04 and -0.03 in a stretch where interruptions arrived every two to
+        // three seconds, each one feeding the next.
         farEnd.reset()
-        canceller?.reset()
         echoReset.incrementAndGet()
     }
 
@@ -254,7 +262,12 @@ class AudioCapture(
         // Scratch for the canceller: allocated once, because this loop runs
         // fifty times a second for the length of a session.
         var cancelFrames = 0
-        var farCursor = -1L
+        var farCursor = 0L
+        var anchored = false
+        var lastFilled = 0L
+        var calibrations = 0
+        var lastPeak = -1
+        var steadyPeaks = 0
         var seenReset = echoReset.get()
         var removedAverage = -1.0
         val micFrame = ShortArray(chunkBytes / 2)
@@ -293,6 +306,19 @@ class AudioCapture(
                             var judgedReference = speakerLevel()
                             var referenced = false
                             val aec = canceller
+                            // Only while the assistant is speaking.
+                            //
+                            // Running it on every frame is the textbook
+                            // arrangement and it does not survive this audio
+                            // stack: the far end is indexed by playback
+                            // position, which stops while the server is
+                            // between blobs, and the microphone is not, so the
+                            // cursor walks off the end of the ring and stays
+                            // there -- measured at 770984 against a ring
+                            // filled to 42240, a canceller fed silence for the
+                            // rest of the session. Feeding it only through a
+                            // turn costs convergence between turns and keeps
+                            // the two timelines in contact.
                             if (aec != null && suppressWhileSpeaking) {
                                 val samples = minOf(read / 2, aec.frameSamples)
                                 var micEnergy = 0.0
@@ -318,13 +344,57 @@ class AudioCapture(
                                 // and added four times the next.
                                 if (seenReset != echoReset.get()) {
                                     seenReset = echoReset.get()
-                                    farCursor = -1L
-                                    removedAverage = -1.0
+                                    anchored = false
                                 }
-                                val target =
-                                    farEnd.cursorFor(playbackFrame()) - samples - CAPTURE_LEAD
-                                if (farCursor < 0 || abs(farCursor - target) > RESYNC_SAMPLES) {
-                                    farCursor = target
+                                // Anchored once, then advanced by the frame.
+                                //
+                                // Both streams are driven by the same audio
+                                // clock -- 320 captured samples is 480 played
+                                // frames, every 20 ms -- so a cursor that just
+                                // steps keeps the alignment the filter learned.
+                                // Re-deriving it from the playback head each
+                                // frame, or snapping to it on drift, moves that
+                                // alignment by whatever the head happens to be
+                                // doing, and the filter's own impulse response
+                                // showed the cost: its peak wandered between
+                                // tap 1 and tap 110 instead of sitting still.
+                                //
+                                // A stall needs no special case. The ring stops
+                                // filling, the cursor walks past it, `holds`
+                                // goes false and the frames read as the silence
+                                // the speaker was actually producing. The one
+                                // real discontinuity is a flush, which resets
+                                // the playback clock and is announced.
+                                // Playback stalls whenever the server is
+                                // between blobs, and the far-end timeline
+                                // stalls with it while the microphone keeps
+                                // running on wall clock. Left alone the cursor
+                                // walks off the end of the ring and never
+                                // comes back -- measured as a cursor at 908000
+                                // against a ring filled to 480320, which is a
+                                // canceller fed silence for the rest of the
+                                // session. So when audio starts arriving again
+                                // and the cursor is past it, take the anchor
+                                // afresh.
+                                val filledNow = farEnd.filled
+                                if (anchored && farCursor > filledNow && filledNow > lastFilled) {
+                                    anchored = false
+                                }
+                                lastFilled = filledNow
+                                if (!anchored) {
+                                    // A flag, not a negative cursor: the
+                                    // anchor is taken a third of a second
+                                    // before the playback head, which at the
+                                    // start of a turn is a negative position,
+                                    // and treating that as "not anchored yet"
+                                    // re-anchored on every frame.
+                                    anchored = true
+                                    calibrations = 0
+                                    lastPeak = -1
+                                    steadyPeaks = 0
+                                    farCursor = farEnd.cursorFor(playbackFrame()) -
+                                        samples - CAPTURE_LEAD
+                                    Log2.i(TAG, "aec anchored at $farCursor")
                                 }
                                 referenced = farEnd.holds(farCursor, samples)
                                 farEnd.copyFrom(farCursor, farFrame)
@@ -340,13 +410,64 @@ class AudioCapture(
                                 val removed =
                                     if (micEnergy <= 0.0) 0.0
                                     else 1.0 - sqrt(cleanEnergy / micEnergy)
+                                // Self-calibration: move the cursor so the
+                                // room sits at the front of the filter.
+                                //
+                                // The distance from the playback head to the
+                                // microphone is not a constant -- measured at
+                                // 371 ms in one session and 427 ms in the next,
+                                // because it depends on how full the output
+                                // buffer was when the track started -- so no
+                                // written-down lead can be right. The filter
+                                // knows, though: the peak of its impulse
+                                // response is exactly how far past our
+                                // alignment the echo sits. Shift the cursor by
+                                // that much and the whole filter is available
+                                // for the room instead of for delay. The
+                                // weights describe the old alignment, so they
+                                // go with it; this happens a handful of times
+                                // at the start of a session and then stops.
                                 if (++cancelFrames % CANCEL_LOG_EVERY == 0) {
+                                    val peak = aec.peakTap()
+                                    // Only a *settled* peak is worth acting
+                                    // on. A filter that was just reset has an
+                                    // impulse response made of noise, and
+                                    // realigning on that is how the first
+                                    // version of this hunted: -297, +270, -262,
+                                    // -314 samples, never arriving. Left alone
+                                    // the filter does settle -- the same
+                                    // session showed the peak sitting still at
+                                    // tap 1240 for seconds -- so the test is
+                                    // whether it has stopped moving.
+                                    val settled = peak > 0 && lastPeak > 0 &&
+                                        abs(peak - lastPeak) < PEAK_STABLE_SAMPLES
+                                    steadyPeaks = if (settled) steadyPeaks + 1 else 0
+                                    lastPeak = peak
+                                    if (steadyPeaks >= PEAK_STABLE_CYCLES &&
+                                        calibrations < MAX_CALIBRATIONS &&
+                                        abs(peak - TARGET_TAP) > TAP_TOLERANCE
+                                    ) {
+                                        calibrations++
+                                        steadyPeaks = 0
+                                        lastPeak = -1
+                                        farCursor -= (peak - TARGET_TAP)
+                                        aec.reset()
+                                        removedAverage = -1.0
+                                        Log2.i(
+                                            TAG,
+                                            "aec realigned by ${peak - TARGET_TAP} " +
+                                                "samples (peak=$peak)",
+                                        )
+                                    }
+                                }
+                                if (cancelFrames % CANCEL_LOG_EVERY == 0) {
                                     Log2.d(
                                         TAG,
                                         "aec removed=${"%.2f".format(removed)} " +
                                             "mic=${sqrt(micEnergy / samples).toInt()} " +
                                             "clean=${sqrt(cleanEnergy / samples).toInt()} " +
                                             "far=${farRms(farFrame, samples)} " +
+                                            "peak=${aec.peakTap()} " +
                                             "cursor=$farCursor filled=${farEnd.filled}",
                                     )
                                 }
@@ -418,7 +539,15 @@ class AudioCapture(
                             // of it -- send that and the server interrupts the
                             // sentence it has only just started, which flushes
                             // again. The gate's own judgement covers that gap.
-                            if (accepted || (suppressWhileSpeaking && referenced)) {
+                            // Streamed through the turn only while the
+                            // residual is clean enough to be worth judging.
+                            // Audio we would not trust ourselves is audio the
+                            // server should not be asked to judge either: sent
+                            // anyway, with cancellation at 0.04, it is the
+                            // assistant's own voice and it is interrupted as
+                            // such.
+                            val trusted = referenced && removedAverage >= TRUSTED_REMOVAL
+                            if (accepted || (suppressWhileSpeaking && trusted)) {
                                 trySend(judged.copyOf(judgedLength))
                             }
                         }
@@ -528,18 +657,24 @@ class AudioCapture(
         private const val RESYNC_SAMPLES = 1_600
 
         /**
-         * How far back from the playback head the far end is read: 150 ms.
+         * How far back from the playback head the far end is read: 350 ms.
          *
          * The reference has to *lead* the microphone -- a canceller models the
          * echo as the far end filtered and delayed, and it has no way to
          * represent a reference that arrives after the sound it is supposed to
-         * explain. The recorder hands over a buffer that has been filling for
-         * up to 80 ms, so a frame read now contains audio from before the head
-         * reading taken beside it, and feeding the far end at the head put the
-         * reference behind the microphone. This puts it comfortably in front,
-         * and the filter spans the rest.
+         * explain.
+         *
+         * The number is measured, not assumed. Once the alignment stopped
+         * moving the filter's impulse response settled with its peak at tap
+         * 3542, which with the 150 ms lead in use at the time puts the real
+         * distance from the playback head to the microphone at about 371 ms --
+         * the device's output buffer, the room, and a recorder that hands over
+         * a buffer which has been filling for up to 80 ms. At 150 ms the
+         * filter was spending three quarters of its 300 ms span on pure delay
+         * and had 80 ms left for the room. This leaves the peak near tap 340
+         * and the rest of the filter for what it is for.
          */
-        private const val CAPTURE_LEAD = 2_400
+        private const val CAPTURE_LEAD = 5_600
 
         /**
          * How much of the frame the canceller has to be removing, averaged,
@@ -553,6 +688,19 @@ class AudioCapture(
         private const val TRUSTED_REMOVAL = 0.6
 
         private const val REMOVED_SMOOTHING = 0.05
+
+        /** Where the room should sit in the filter: 20 ms in. */
+        private const val TARGET_TAP = 320
+
+        /** How far off that is worth a realignment. */
+        private const val TAP_TOLERANCE = 240
+
+        /** Realignments per anchor, so this settles instead of hunting. */
+        private const val MAX_CALIBRATIONS = 2
+
+        /** How still the peak has to be, and for how long, to be believed. */
+        private const val PEAK_STABLE_SAMPLES = 160
+        private const val PEAK_STABLE_CYCLES = 3
 
         private const val TAG = "AudioCapture"
 
