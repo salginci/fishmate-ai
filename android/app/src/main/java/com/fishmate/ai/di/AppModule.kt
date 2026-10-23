@@ -82,9 +82,26 @@ object AppModule {
                 )
             }
         }
-        .connectTimeout(15, TimeUnit.SECONDS)
+        // Five seconds to get a connection, thirty to get an answer.
+        //
+        // These are not the same kind of wait. Once a request is on the wire,
+        // a slow answer is still an answer and the angler is waiting for it,
+        // so the read timeout stays generous. A connection that has not
+        // opened yet has produced nothing, and on this deployment that is the
+        // common failure: measured against the server, roughly one TCP
+        // connection in ten gets no SYN-ACK, on port 443 and on plain SSH
+        // alike, so it is the network path and not anything we run. The
+        // kernel retransmits the SYN at one and three seconds, which is why
+        // the connects that do recover land at 1.1-3.5 s. A fifteen second
+        // ceiling waited out all of that and then some: a sign-in cost 31 s
+        // and failed, because OkHttp spent fifteen seconds on a dead SYN,
+        // retried, and spent fifteen more. Five seconds keeps every recovery
+        // that happens and abandons the rest while a retry is still cheap.
+        .connectTimeout(5, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
+        // Retries a request that never reached the server, whatever its
+        // method. Nothing was sent, so there is no write to duplicate.
         .retryOnConnectionFailure(true)
         .build()
 

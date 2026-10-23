@@ -29,7 +29,7 @@ data class HomeUiState(
     val tackleCount: Int = 0,
     val totalCatches: Int = 0,
     val conditions: ConditionsDto? = null,
-    val conditionsError: String? = null,
+    val conditionsError: AppError? = null,
     val pendingWrites: Int = 0,
     val refreshing: Boolean = false,
     val error: AppError? = null,
@@ -45,7 +45,7 @@ class HomeViewModel @Inject constructor(
     private val _volatile = MutableStateFlow(VolatileState())
     private data class VolatileState(
         val conditions: ConditionsDto? = null,
-        val conditionsError: String? = null,
+        val conditionsError: AppError? = null,
         val refreshing: Boolean = false,
         val error: AppError? = null,
     )
@@ -129,7 +129,7 @@ class HomeViewModel @Inject constructor(
             )
             is AppResult.Err -> _volatile.value = _volatile.value.copy(
                 conditions = null,
-                conditionsError = result.error.message,
+                conditionsError = result.error,
             )
         }
     }

@@ -193,6 +193,35 @@ WebSockets; the domain knows nothing about Gemini.
 `FishMateError` (backend) convert everything into a user-presentable
 `{code, message}`. That is what makes "no stack traces in the UI" structural.
 
+**Cancellation is not an error, and "offline" is not a synonym for "failed".**
+Both halves of that were wrong at once, and together they put "You're offline"
+on a phone with four bars. A token the backend no longer recognises is cleared
+by `UnauthorizedInterceptor`, which tears down the scope every in-flight call
+was launched in; those calls then arrived in `apiCall` as
+`IOException: Canceled` and `JobCancellationException`, were mapped to
+`AppError.offline()` and `unknown()`, and Home's `SyncBanner` -- which took
+*any* conditions error as proof of being offline -- said so. `apiCall` now
+rethrows both shapes of cancellation, which is also what structured
+concurrency requires, `RetryInterceptor` does not retry a cancelled call, and
+the banner claims `offline` only for `CODE_OFFLINE`; every other reason is
+reported by the conditions card in the backend's own words. An angler told
+they are offline goes looking for signal, which is the one thing that was
+never wrong.
+
+**A lost SYN is not a slow server, and the connect timeout is what tells them
+apart.** Measured against `tr-vds` during an episode on 23/10/2026: about one
+TCP connection in ten got no SYN-ACK, on port 443 and on plain SSH alike, with
+the recovering connects landing at 1.1-3.5 s -- the kernel's SYN retransmit
+schedule. Nothing we run was involved: the container was healthy, nginx-proxy
+had logged two listen drops in eight days, conntrack was at 332 of 262144, and
+`ListenOverflows` was zero. The episode cleared by itself within ten minutes,
+so expect it to come back; it is the host's network path. What it cost was set
+by our own timeout: a sign-in took 31 s to fail, because OkHttp spent fifteen
+seconds on a dead SYN, retried, and spent fifteen more. The connect timeout is
+now 5 s, which keeps every retransmit that recovers and abandons the rest
+while a retry is still cheap. The read timeout stays at 30 s, because a slow
+answer is still an answer.
+
 **The tool path is the critical path of the first sentence.** The model cannot
 speak until a tool call is answered, so anything slow between `toolCall` and
 the response is silence the angler hears. `FusedLocationProvider.lastKnown()`

@@ -56,6 +56,12 @@ class UnauthorizedInterceptor(private val authStore: AuthStore) : Interceptor {
  * Fishing happens where signal is marginal; a single retry converts many
  * "something went wrong" messages into a working request. Only GETs are
  * retried, so a catch is never logged twice.
+ *
+ * A cancelled call is never retried. Cancellation is this app's own decision
+ * -- the screen went away, or a rejected token tore the session down -- and
+ * retrying it burns two `Thread.sleep`s per request on a call whose answer
+ * nobody is waiting for. Measured on a signed-out launch: three requests, each
+ * retried three times, all of them already dead.
  */
 class RetryInterceptor(private val maxRetries: Int = 2) : Interceptor {
     override fun intercept(chain: Interceptor.Chain): Response {
@@ -68,6 +74,7 @@ class RetryInterceptor(private val maxRetries: Int = 2) : Interceptor {
                 return chain.proceed(request)
             } catch (e: IOException) {
                 lastError = e
+                if (chain.call().isCanceled()) throw e
                 if (attempt < maxRetries) {
                     Log2.d("Retry", "GET ${request.url.encodedPath} attempt ${attempt + 1} failed")
                     Thread.sleep(200L * (attempt + 1))

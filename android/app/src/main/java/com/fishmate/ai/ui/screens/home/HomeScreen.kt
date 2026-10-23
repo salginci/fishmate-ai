@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.fishmate.ai.R
+import com.fishmate.ai.core.AppError
 import com.fishmate.ai.data.local.entity.CatchEntity
 import com.fishmate.ai.ui.components.ErrorBanner
 import com.fishmate.ai.ui.components.FishMateCard
@@ -90,7 +91,13 @@ fun HomeScreen(
 
         item {
             SyncBanner(
-                offline = state.conditionsError != null && state.conditions == null,
+                // Only a real network failure is called one. Any other
+                // reason conditions did not arrive -- a rejected token, a
+                // refusing upstream -- is reported by the conditions card in
+                // its own words, because telling an angler with four bars
+                // that they are offline sends them to fix the wrong thing.
+                offline = state.conditionsError?.code == AppError.CODE_OFFLINE &&
+                    state.conditions == null,
                 pendingWrites = state.pendingWrites,
                 syncing = state.refreshing,
             )
@@ -213,7 +220,7 @@ private fun ConditionsCard(state: HomeUiState) {
         Column(modifier = Modifier.padding(16.dp)) {
             if (conditions == null) {
                 Text(
-                    text = state.conditionsError
+                    text = state.conditionsError?.message
                         ?: stringResource(R.string.perm_location_body),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
