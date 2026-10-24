@@ -22,8 +22,26 @@ import type { LiveEvent } from './events'
  */
 const ENABLED = process.env.FISHMATE_VERIFY_LIVE === '1'
 const API = process.env.FISHMATE_API ?? 'http://localhost:8099'
-const EMAIL = process.env.FISHMATE_EMAIL ?? 'ozgur@salginci.com'
-const PASSWORD = process.env.FISHMATE_PASSWORD ?? 'FISHMATE_PASSWORD-env-var'
+
+// No fallbacks. These are credentials for a real account on a real server, and
+// a default that works is a default that gets committed -- this one was, and
+// it reached every commit in the repository before anyone noticed. A missing
+// variable has to fail loudly here rather than quietly sign somebody in.
+function required(name: string): string {
+  const value = process.env[name]
+  if (!value) {
+    throw new Error(
+      `${name} is not set. ` +
+        'make verify-live-web needs FISHMATE_EMAIL and FISHMATE_PASSWORD ' +
+        'for an account on FISHMATE_API; keep them in your shell or .env, ' +
+        'never in this file.',
+    )
+  }
+  return value
+}
+
+const EMAIL = ENABLED ? required('FISHMATE_EMAIL') : ''
+const PASSWORD = ENABLED ? required('FISHMATE_PASSWORD') : ''
 
 async function mint(): Promise<LiveCredentials> {
   const login = await fetch(`${API}/api/v1/auth/login`, {
